@@ -2,13 +2,14 @@ Package: dsRctFedClient
 Title: Orchestrate The Federated Computation Of ATE
 Version: 0.0.0.9000
 Authors@R: 
-    c(person(given = "Francisco",
-             family = "Andrade",
-             role = c("aut", "cre"),
-             ),
-      person(given = "Julie",
-             family = "Josse",
-             role = "aut"))
+  c(person(given = "Francisco",
+           family = "Andrade",
+           role = c("aut", "cre"),
+           email = "francisco.de-lima-andrade@inria.fr",
+           ),
+    person(given = "Julie",
+           family = "Josse",
+           role = "aut"))
 Description: Based on “Federated Causal Inference: Multi-Studies ATE Estimation Beyond Meta-Analysis” (R. Khellaf, A. Bellet, and J. Josse, 2025), this package implements a DATASHIELD client side package that orchestrates the federated computation of the average treatment effect using data collected in a randomized controlled trial (RCT) setting.
 License: AGPL (>= 3)
 Encoding: UTF-8
@@ -16,4 +17,5 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Additional_repositories: https://cran.obiba.org/
 Imports: 
-    dsBaseClient
+    dsBaseClient,
+    DSI

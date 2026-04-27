@@ -1,3 +1,24 @@
+#' Estimate average treatment effect in federated RCT data
+#'
+#' Client-side function that orchestrates the federated computation of an average
+#' treatment effect (ATE) for data collected in a randomized controlled trial (RCT)
+#' setting using DataSHIELD. The function uses \code{\link[dsBaseClient]{ds.glm}} to perform
+#' separate linear regressions of the outcome on covariates for treatment and
+#' control groups across distributed data sources. Local ATEs are computed at each
+#' server using the regression coefficients, then aggregated proportionally to each
+#' server's sample size to produce the final pooled estimate.
+#' @param connections A list of \code{\link[DSI]{DSConnection-class}} objects obtained after login.
+#' @param base_name A character string specifying the name of the data frame on
+#'   the server side. Must be identical across all servers.
+#' @param outcome_name A character string specifying the name of the outcome
+#'   variable in the server-side data frame.
+#' @param treatment_name A character string specifying the name of the treatment
+#'   variable in the server-side data frame.
+#' @param covariate_names A character vector specifying the names of covariate
+#'   variables in the server-side data frame.
+#'
+#' @returns A numeric value representing the pooled average treatment effect across all federated data sources.
+#' @export
 ds.EstimateAte <- function(connections, base_name, outcome_name, treatment_name, covariate_names) {
   # Regression ---------------------------------------------------------------------
 
@@ -15,7 +36,7 @@ ds.EstimateAte <- function(connections, base_name, outcome_name, treatment_name,
     datasources = connections
   )
 
-  ## Regression ver the control group ---------------------------------------------
+  ## Regression over the control group ---------------------------------------------
 
   control_indicator <- paste0("1 - ", base_name, "$", treatment_name)
 
@@ -53,7 +74,8 @@ ds.EstimateAte <- function(connections, base_name, outcome_name, treatment_name,
 
   # Final aggregation --------------------------------------------------------------
 
-  n <- sum(local_results$n_k)
+  n_k <- local_results$n_k
+  n <- sum(n_k)
   sw_weights <- n_k / n
   tau <- sum(sw_weights * local_results$tau_k)
 }
@@ -78,8 +100,8 @@ ds.localAte <- function(connections, base_name, covariate_names, treatment_name,
     tau_k[k] <- res$tau_k
   }
 
-  list(
+  return(list(
     n_k = n_k,
     tau_k = tau_k
-  )
+  ))
 }
