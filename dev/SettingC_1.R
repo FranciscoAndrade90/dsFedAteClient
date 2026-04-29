@@ -66,6 +66,8 @@ for (k in 1:K) {
               k, n_k, sum(W_k), sum(1-W_k)))
 }
 
+pooled_data <- do.call(rbind, data_list)
+
 cat("\n")
 
 # ============================================================================
@@ -227,7 +229,7 @@ connections <- conns
 cat("Calling: ds.EstimateAte(conns, '", base_name, "', '", outcome_name,
     "', '", treatment_name, "', c('", paste(covariate_names, collapse = "', '"), "'))\n\n", sep = "")
 
-result <- ds.EstimateAte(
+federated_ate <- ds.EstimateAte(
   connections = conns,
   base_name = base_name,
   outcome_name = outcome_name,
@@ -241,11 +243,37 @@ cat("==========================================================\n")
 cat("RESULTS FROM ds.EstimateAte\n")
 cat("==========================================================\n\n")
 
-print(result)
+print(federated_ate)
 
 cat("\n")
 
 
+cat("==========================================================\n")
+cat("Centralized Setting")
+cat("==========================================================\n\n")
+
+pooled_data_treated <- pooled_data[pooled_data$W == 1, ]
+pooled_data_control <- pooled_data[pooled_data$W == 0, ]
+
+formula <- paste0(outcome_name, " ~ ", paste(covariate_names, collapse = " + "))
+
+model_treated <- glm(formula = formula, family = gaussian, data = pooled_data_treated)
+model_control <- glm(formula = formula, family = gaussian, data = pooled_data_control)
+
+coef_treated <- model_treated$coefficients
+coef_control <- model_control$coefficients
+
+alpha1 <- coef_treated["(Intercept)"]
+alpha0 <- coef_control["(Intercept)"]
+beta1 <- coef_treated[covariate_names]
+beta0 <- coef_control[covariate_names]
+
+tau_diff <- alpha1 - alpha0
+gamma_diff <- beta1 - beta0
+
+X_mat <- as.matrix(pooled_data[, covariate_names, drop = FALSE])
+x_bar <- colMeans(X_mat, na.rm = TRUE)
+pooled_ate <- as.numeric(tau_diff + sum(x_bar * gamma_diff))
 # ============================================================================
 # STEP 9: Save Configuration
 # ============================================================================

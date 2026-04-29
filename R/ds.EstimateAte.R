@@ -45,19 +45,19 @@ ds.EstimateAte <- function(connections, base_name, outcome_name, treatment_name,
     datasources      = connections
   )
 
-  model_treated <- dsBaseClient::ds.glm(
+  model_treated <- suppressWarnings(dsBaseClient::ds.glm(
     formula     = formula,
     data        = treated_name,
     family      = "gaussian",
     datasources = connections
-  )
+  ))
 
-  model_control <- dsBaseClient::ds.glm(
+  model_control <- suppressWarnings(dsBaseClient::ds.glm(
     formula     = formula,
     data        = control_name,
     family      = "gaussian",
     datasources = connections
-  )
+  ))
   ## Extract Coefficients ----------------------------------------------------------
 
   coef_treated <- model_treated$coefficients
