@@ -20,34 +20,44 @@
 #' @returns A numeric value representing the pooled average treatment effect across all federated data sources.
 #' @export
 ds.EstimateAte <- function(connections, base_name, outcome_name, treatment_name, covariate_names) {
-  # Regression ---------------------------------------------------------------------
-
-  formula <- paste0(outcome_name, " ~ ", paste(covariate_names, collapse = " + "))
-
-  ## Regression over the treated group ---------------------------------------------
+  # Regression over the treated/control groups--------------------------------------
 
   treatment_indicator <- paste0(base_name, "$", treatment_name)
+  treated_name <- paste0(base_name, "_treated")
+  control_name <- paste0(base_name, "_control")
+  formula <- paste0(outcome_name, " ~ ", paste(covariate_names, collapse = " + "))
+
+  dsBaseClient::ds.dataFrameSubset(
+    df.name          = base_name,
+    V1.name          = treatment_indicator,
+    V2.name          = "1",
+    Boolean.operator = "==",
+    newobj           = treated_name,
+    datasources      = connections
+  )
+
+  dsBaseClient::ds.dataFrameSubset(
+    df.name          = base_name,
+    V1.name          = treatment_indicator,
+    V2.name          = "0",
+    Boolean.operator = "==",
+    newobj           = control_name,
+    datasources      = connections
+  )
 
   model_treated <- dsBaseClient::ds.glm(
     formula     = formula,
-    data        = base_name,
+    data        = treated_name,
     family      = "gaussian",
-    weights     = treatment_indicator,
     datasources = connections
   )
-
-  ## Regression over the control group ---------------------------------------------
-
-  control_indicator <- paste0("1 - ", base_name, "$", treatment_name)
 
   model_control <- dsBaseClient::ds.glm(
     formula     = formula,
-    data        = base_name,
+    data        = control_name,
     family      = "gaussian",
-    weights     = control_indicator,
     datasources = connections
   )
-
   ## Extract Coefficients ----------------------------------------------------------
 
   coef_treated <- model_treated$coefficients
@@ -58,8 +68,8 @@ ds.EstimateAte <- function(connections, base_name, outcome_name, treatment_name,
   beta1 <- coef_treated[covariate_names, "Estimate"]
   beta0 <- coef_control[covariate_names, "Estimate"]
 
-  tau <- alpha1 - alpha0
-  gamma <- beta1 - beta0
+  tau_diff <- alpha1 - alpha0
+  gamma_diff <- beta1 - beta0
 
   # Send coefficients and ask for local ATE ----------------------------------------
 
@@ -68,8 +78,8 @@ ds.EstimateAte <- function(connections, base_name, outcome_name, treatment_name,
     base_name = base_name,
     covariate_names = covariate_names,
     treatment_name = treatment_name,
-    tau = tau,
-    gamma = gamma
+    tau = tau_diff,
+    gamma = gamma_diff
   )
 
   # Final aggregation --------------------------------------------------------------
@@ -77,7 +87,8 @@ ds.EstimateAte <- function(connections, base_name, outcome_name, treatment_name,
   n_k <- local_results$n_k
   n <- sum(n_k)
   sw_weights <- n_k / n
-  tau <- sum(sw_weights * local_results$tau_k)
+  ate_hat <- sum(sw_weights * local_results$tau_k)
+  return(ate_hat)
 }
 
 
