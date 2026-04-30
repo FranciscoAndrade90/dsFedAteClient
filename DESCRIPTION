@@ -19,3 +19,7 @@ Additional_repositories: https://cran.obiba.org/
 Imports: 
     dsBaseClient,
     DSI
+Suggests: 
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr

@@ -1,0 +1,247 @@
+---
+title: "Federated RCT"
+output: rmarkdown::html_vignette
+bibliography: biblio.bib
+vignette: >
+  %\VignetteIndexEntry{Federated RCT}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup, eval = FALSE}
+library(dsRctFedClient)
+```
+## Description
+
+Randomized Controlled Trials (RCTs) are the gold standard for estimating causal treatment effects, as randomization ensures that treatment assignment is independent of patient characteristics, allowing for unbiased estimation of the Average Treatment Effect (ATE). In practice, however, individual RCTs are often limited in sample size, patient diversity, or generalizability. Combining evidence across multiple trials conducted at different centers is therefore highly desirable, but raises an immediate obstacle: individual-level data are frequently siloed across institutions due to privacy regulations, ethical constraints, or data governance policies, making naive data pooling infeasible.
+
+Federated learning offers a principled solution to this tension. Rather than centralizing data, federated approaches coordinate model fitting across centers by exchanging only intermediate quantities — such as model parameters or gradients — so that raw patient records never leave their originating site. Translating this paradigm to causal inference is non-trivial, as treatment effect estimation typically requires careful modeling of both outcome and treatment assignment across heterogeneous populations.
+
+This vignette demonstrates how to use the package to estimate the ATE across multiple RCTs in exactly this federated setting. The package is built on top of **DataSHIELD**, leveraging `dsBaseClient::ds.glm` to fit two federated linear regressions — one for each treatment arm — directly on the decentralized data. The resulting model parameters are then shared back, each center computes its local ATE via the Plug-in G-Formula, and these estimates are aggregated into a global ATE, following the federated estimator of @khellaf2025.
+
+## Mathematical Formulation
+
+Let \((X_{ki}, Y_{ki}, W_{ki})\) denote the observations of individual \(i\) in center \(k\), where \(X_{ki} \in \mathbb{R}^p\) are covariates, \(Y_{ki} \in \mathbb{R}\) is the outcome, and \(W_{ki} \in \{0,1\}\) is the treatment indicator. The \(n\) individuals are spread across \(K\) centers, with center \(k\) holding \(n_k\) observations such that \(\sum_{k=1}^K n_k = n\). No individual-level data leaves its center. For each arm \(w \in \{0, 1\}\), we **federatively** fit a linear outcome model across all \(K\) centers via `dsBaseClient::ds.glm`:
+
+$$(\tau_w,\, \theta_w) = \underset{\tau,\, \theta}{\arg\min} \sum_{k=1}^K\sum_{i:\, W_{ki} = w} \left(Y_{ki} - \tau - \theta^\top X_{ki}\right)^2.$$
+
+Because the outcome model is linear, `dsBaseClient::ds.glm` returns the exact solution --- no approximation is involved. The federated implementation simply aggregates sufficient statistics (cross-products of covariates and outcomes) across centers, which is algebraically equivalent to pooling the data.
+
+The global ATE is estimated via the Plug-in G-Formula. Each center \(k\) first computes its local ATE using the shared model parameters:
+
+$$\tau_k = \frac{1}{n_k}\sum_{i=1}^{n_k} \left(\tau_1 + \theta_1^\top X_{ki} - \tau_0 - \theta_0^\top X_{ki}\right),$$
+
+and the global estimate is the sample-size-weighted average of the local estimates:
+
+$$\tau = \sum_{k=1}^K \frac{n_k}{n}\, \tau_k.$$
+
+## How to install
+
+The latest release of the package can be installed through CRAN (soon):
+
+```{r, eval=FALSE}
+install.packages("dsRctFedClient")
+```
+
+Note that, in addition to this package, a server-side package must also be installed. In practice, it must be deployed on each server (i.e., the machines hosting the data). This can be done via
+
+```{r, eval=FALSE}
+install.packages("dsRctFed")
+```
+
+## Example 1
+
+This first example reproduces the simulation setting of Appendix C.1 of @khellaf2025, 
+which considers $K$ centers with balanced sample sizes and homogeneous covariate 
+distributions. The main purpose is to illustrate that the federated approach yields 
+exactly the same result as if the computation had been carried out in a centralized setting.
+
+The analysis is carried out using **DSLite**, a lightweight R package that emulates 
+a DataSHIELD federated infrastructure entirely in memory, without requiring any 
+network connection or server setup. DSLite spins up virtual servers that each hold 
+a local dataset and only expose the same privacy-preserving interface as a real Opal 
+server, making it ideal for developing, testing, and illustrating federated analyses 
+in a fully reproducible way.
+
+
+```{r, eval=FALSE}
+library(DSLite)
+library(DSI)
+library(dsRctFedClient)
+library(dsRctFed)
+library(MASS)
+```
+
+### Paremeters 
+
+The parameters  defined in Appendix C.1 of @khellaf2025 are 
+
+```{r, eval=FALSE}
+set.seed(123)
+
+# Parameters
+K <- 5  # number of studies
+d <- 10 # dimension
+n_per_study <- 20 * d
+p_treatment <- c(0.5, 0.5, 0.5, 0.5, 0.5) # probability of assignment 
+
+# Outcome model parameters
+sigma_noise <- 1.0
+c_0 <- -2
+c_1 <- -1.85
+
+beta_1 <- seq(-1.75, 0.5, by = 0.25)
+beta_0 <- seq(-1.8, 0, by = 0.2)
+
+mu_X <- c(rep(1, d %/% 2), rep(-1, d %/% 2))
+I_d <- diag(d)                  # identity matrix
+J <- matrix(1, nrow = d, ncol = d)  # matrix of all ones
+Sigma_X <-  0.5 * I_d + 0.5 * J
+```
+
+Note that, under this model, the true ATE is given by
+
+```{r, eval=FALSE}
+true_ATE <- (c_1 - c_0) + sum(mu_X * (beta_1 - beta_0))
+print(true_ATE)
+```
+
+### Data Generation
+```{r, eval = FALSE}
+data_list <- list() # list that will contain K data frames (one per center)
+
+for (k in 1:K) {
+  n_k <- n_per_study
+  X_k <- mvrnorm(n = n_k, mu = mu_X, Sigma = Sigma_X)
+  W_k <- rbinom(n = n_k, size = 1, prob = p_treatment[k])
+
+  epsilon_0 <- rnorm(n_k, mean = 0, sd = sigma_noise)
+  epsilon_1 <- rnorm(n_k, mean = 0, sd = sigma_noise)
+
+  Y_0 <- c_0 + X_k %*% beta_0 + epsilon_0 # potential outcome under control
+  Y_1 <- c_1 + X_k %*% beta_1 + epsilon_1 # potential outcome under treatment
+  Y_obs <- W_k * Y_1 + (1 - W_k) * Y_0    # observed outcome
+
+  # Create data frame for the current study
+  data_list[[k]] <- data.frame(
+    subject_id = 1:n_k,
+    W = W_k,
+    Y = as.vector(Y_obs),
+    X_k
+  )
+  colnames(data_list[[k]]) <- c("subject_id", "W", "Y", paste0("X", 1:d))
+
+pooled_data <- do.call(rbind, data_list)
+```
+
+### Creation of DSLite Servers (One per Study)
+
+DSLite is a lightweight R package that simulates a DataSHIELD federated setup in memory, without servers or network. It creates virtual servers, each holding local data and exposing a privacy-preserving interface, making it useful for testing and developing federated analyses reproducibly. In this section we generate $K$ DSLite servers.
+
+```{r, eval = FALSE}
+for (k in 1:K) {
+  server_name <- paste0("dslite.server", k)
+
+  # Create server k holding the k-th data frame
+  server_obj <- newDSLiteServer(
+    tables = list(study_data = data_list[[k]])
+  )
+
+  # Configure the server to include the required packages.
+  server_obj$config(defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  server_obj$aggregateMethod("localAteDS", "localAteDS")
+
+  # Assign it to the environment with the name `server_name`
+  assign(server_name, server_obj, envir = .GlobalEnv)
+```
+
+Now create the login configurations
+
+```{r, eval = FALSE}
+builder <- DSI::newDSLoginBuilder()
+
+# Add each server using a loop
+for (k in 1:K) {
+  builder$append(
+    server = paste0("study", k),
+    url = paste0("dslite.server", k),
+    table = "study_data",
+    driver = "DSLiteDriver"
+  )
+}
+
+logindata <- builder$build()
+```
+
+and login while assigning the name `base` to the server's data frame
+
+```{r, eval = FALSE}
+conns <- DSI::datashield.login(logins = logindata, assign = FALSE)
+datashield.assign.table(
+  conns = conns,
+  table = "study_data",
+  symbol = "base"
+)
+```
+
+### Federated Estimation of the ATE
+
+The federated estimation proceeds by leveraging `dsBaseClient::ds.glm` to fit two federated linear regressions — one for each treatment arm — directly on the decentralized data, after which the resulting model parameters are shared back so that each center can compute its local ATE via the Plug-in G-Formula, and these estimates are then aggregated into a global ATE following the federated estimator of @khellaf2025.
+
+```{r, eval = FALSE}
+base_name <- "base"                    # Name of the dataset symbol on each server
+outcome_name <- "Y"                    # Outcome variable
+treatment_name <- "W"                  # Treatment variable
+covariate_names <- paste0("X", 1:d)    # Covariates X1, X2, ..., Xd
+connections <- conns.                  # connections (logins)
+
+federated_ate <- ds.EstimateAte(
+  connections = conns,
+  base_name = base_name,
+  outcome_name = outcome_name,
+  treatment_name = treatment_name,
+  covariate_names = covariate_names
+)
+```
+
+We now compute the pooled estimator, i.e., the one obtained by centralizing the data.
+
+```{r, eval = FALSE}
+pooled_data_treated <- pooled_data[pooled_data$W == 1, ]
+pooled_data_control <- pooled_data[pooled_data$W == 0, ]
+
+formula <- paste0(outcome_name, " ~ ", paste(covariate_names, collapse = " + "))
+
+model_treated <- glm(formula = formula, family = gaussian, data = pooled_data_treated)
+model_control <- glm(formula = formula, family = gaussian, data = pooled_data_control)
+
+coef_treated <- model_treated$coefficients
+coef_control <- model_control$coefficients
+
+alpha1 <- coef_treated["(Intercept)"]
+alpha0 <- coef_control["(Intercept)"]
+beta1 <- coef_treated[covariate_names]
+beta0 <- coef_control[covariate_names]
+
+tau_diff <- alpha1 - alpha0
+gamma_diff <- beta1 - beta0
+
+X_mat <- as.matrix(pooled_data[, covariate_names, drop = FALSE])
+x_bar <- colMeans(X_mat, na.rm = TRUE)
+pooled_ate <- as.numeric(tau_diff + sum(x_bar * gamma_diff))
+```
+
+To finish, we show that the pooled estimator is equal to the federated one
+
+```{r, eval = FALSE}
+print(abs(pooled_ate-federated_ate))
+```
+
+## References
