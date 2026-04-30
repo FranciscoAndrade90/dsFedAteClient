@@ -71,7 +71,7 @@ server, making it ideal for developing, testing, and illustrating federated anal
 in a fully reproducible way.
 
 
-```{r, eval=FALSE}
+```{r, eval=TRUE}
 library(DSLite)
 library(DSI)
 library(dsRctFedClient)
@@ -83,7 +83,7 @@ library(MASS)
 
 The parameters  defined in Appendix C.1 of @khellaf2025 are 
 
-```{r, eval=FALSE}
+```{r, eval=TRUE}
 set.seed(123)
 
 # Parameters
@@ -108,13 +108,13 @@ Sigma_X <-  0.5 * I_d + 0.5 * J
 
 Note that, under this model, the true ATE is given by
 
-```{r, eval=FALSE}
+```{r, eval=TRUE}
 true_ATE <- (c_1 - c_0) + sum(mu_X * (beta_1 - beta_0))
 print(true_ATE)
 ```
 
 ### Data Generation
-```{r, eval = FALSE}
+```{r, eval = TRUE}
 data_list <- list() # list that will contain K data frames (one per center)
 
 for (k in 1:K) {
@@ -137,6 +137,7 @@ for (k in 1:K) {
     X_k
   )
   colnames(data_list[[k]]) <- c("subject_id", "W", "Y", paste0("X", 1:d))
+}
 
 pooled_data <- do.call(rbind, data_list)
 ```
@@ -145,7 +146,7 @@ pooled_data <- do.call(rbind, data_list)
 
 DSLite is a lightweight R package that simulates a DataSHIELD federated setup in memory, without servers or network. It creates virtual servers, each holding local data and exposing a privacy-preserving interface, making it useful for testing and developing federated analyses reproducibly. In this section we generate $K$ DSLite servers.
 
-```{r, eval = FALSE}
+```{r, eval = TRUE}
 for (k in 1:K) {
   server_name <- paste0("dslite.server", k)
 
@@ -160,11 +161,12 @@ for (k in 1:K) {
 
   # Assign it to the environment with the name `server_name`
   assign(server_name, server_obj, envir = .GlobalEnv)
+}
 ```
 
 Now create the login configurations
 
-```{r, eval = FALSE}
+```{r, eval = TRUE}
 builder <- DSI::newDSLoginBuilder()
 
 # Add each server using a loop
@@ -182,7 +184,7 @@ logindata <- builder$build()
 
 and login while assigning the name `base` to the server's data frame
 
-```{r, eval = FALSE}
+```{r, eval = TRUE}
 conns <- DSI::datashield.login(logins = logindata, assign = FALSE)
 datashield.assign.table(
   conns = conns,
@@ -195,12 +197,12 @@ datashield.assign.table(
 
 The federated estimation proceeds by leveraging `dsBaseClient::ds.glm` to fit two federated linear regressions — one for each treatment arm — directly on the decentralized data, after which the resulting model parameters are shared back so that each center can compute its local ATE via the Plug-in G-Formula, and these estimates are then aggregated into a global ATE following the federated estimator of @khellaf2025.
 
-```{r, eval = FALSE}
+```{r, results = 'hide', message = FALSE}
 base_name <- "base"                    # Name of the dataset symbol on each server
 outcome_name <- "Y"                    # Outcome variable
 treatment_name <- "W"                  # Treatment variable
 covariate_names <- paste0("X", 1:d)    # Covariates X1, X2, ..., Xd
-connections <- conns.                  # connections (logins)
+connections <- conns                   # connections (logins)
 
 federated_ate <- ds.EstimateAte(
   connections = conns,
@@ -213,7 +215,7 @@ federated_ate <- ds.EstimateAte(
 
 We now compute the pooled estimator, i.e., the one obtained by centralizing the data.
 
-```{r, eval = FALSE}
+```{r, eval = TRUE}
 pooled_data_treated <- pooled_data[pooled_data$W == 1, ]
 pooled_data_control <- pooled_data[pooled_data$W == 0, ]
 
@@ -240,7 +242,7 @@ pooled_ate <- as.numeric(tau_diff + sum(x_bar * gamma_diff))
 
 To finish, we show that the pooled estimator is equal to the federated one
 
-```{r, eval = FALSE}
+```{r, eval = TRUE}
 print(abs(pooled_ate-federated_ate))
 ```
 
