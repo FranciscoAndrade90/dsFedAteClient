@@ -24,23 +24,8 @@ Randomized Controlled Trials (RCTs) are the gold standard for estimating causal 
 
 Federated learning offers a principled solution to this tension. Rather than centralizing data, federated approaches coordinate model fitting across centers by exchanging only intermediate quantities — such as model parameters or gradients — so that raw patient records never leave their originating site. Translating this paradigm to causal inference is non-trivial, as treatment effect estimation typically requires careful modeling of both outcome and treatment assignment across heterogeneous populations.
 
-This vignette demonstrates how to use the package to estimate the ATE across multiple RCTs in exactly this federated setting. The package is built on top of **DataSHIELD**, leveraging `dsBaseClient::ds.glm` to fit two federated linear regressions — one for each treatment arm — directly on the decentralized data. The resulting model parameters are then shared back, each center computes its local ATE via the Plug-in G-Formula, and these estimates are aggregated into a global ATE, following the federated estimator of @khellaf2025.
+This vignette demonstrates how to use the package to estimate the ATE across multiple RCTs in exactly this federated setting. The package is built on top of **DataSHIELD**, leveraging `dsBaseClient::ds.glm` to fit two federated linear regressions — one for each treatment arm — directly on the decentralized data. The resulting model parameters are then shared back, each center computes its local ATE via the Plug-in G-Formula, and these estimates are aggregated into a global ATE, following the federated estimator of @khellaf2025. We can think of this method as conducting an individual patient data (IPD) meta-analysis, but without pooling the raw data into a central location. Instead, the data remains distributed across participating sites.
 
-## Mathematical Formulation
-
-Let \((X_{ki}, Y_{ki}, W_{ki})\) denote the observations of individual \(i\) in center \(k\), where \(X_{ki} \in \mathbb{R}^p\) are covariates, \(Y_{ki} \in \mathbb{R}\) is the outcome, and \(W_{ki} \in \{0,1\}\) is the treatment indicator. The \(n\) individuals are spread across \(K\) centers, with center \(k\) holding \(n_k\) observations such that \(\sum_{k=1}^K n_k = n\). No individual-level data leaves its center. For each arm \(w \in \{0, 1\}\), we **federatively** fit a linear outcome model across all \(K\) centers via `dsBaseClient::ds.glm`:
-
-$$(\tau_w,\, \theta_w) = \underset{\tau,\, \theta}{\arg\min} \sum_{k=1}^K\sum_{i:\, W_{ki} = w} \left(Y_{ki} - \tau - \theta^\top X_{ki}\right)^2.$$
-
-Because the outcome model is linear, `dsBaseClient::ds.glm` returns the exact solution --- no approximation is involved. The federated implementation simply aggregates sufficient statistics (cross-products of covariates and outcomes) across centers, which is algebraically equivalent to pooling the data.
-
-The global ATE is estimated via the Plug-in G-Formula. Each center \(k\) first computes its local ATE using the shared model parameters:
-
-$$\tau_k = \frac{1}{n_k}\sum_{i=1}^{n_k} \left(\tau_1 + \theta_1^\top X_{ki} - \tau_0 - \theta_0^\top X_{ki}\right),$$
-
-and the global estimate is the sample-size-weighted average of the local estimates:
-
-$$\tau = \sum_{k=1}^K \frac{n_k}{n}\, \tau_k.$$
 
 ## How to install
 
@@ -70,12 +55,28 @@ a local dataset and only expose the same privacy-preserving interface as a real 
 server, making it ideal for developing, testing, and illustrating federated analyses 
 in a fully reproducible way.
 
+### Mathematical Formulation
+
+**Data structure.** Consider \(n\) individuals distributed across \(K\) centers, with center \(k\) holding \(n_k\) observations such that \(\sum_{k=1}^K n_k = n\). For individual \(i\) in center \(k\), let \(X_{ki} \in \mathbb{R}^d\) denote covariates, \(Y_{ki} \in \mathbb{R}\) the outcome, and \(W_{ki} \in \{0,1\}\) the treatment indicator. No individual-level data leaves its center.
+
+```{r graphical-model, echo=FALSE, out.width="250px", fig.align="center", fig.cap="Causal relationships: center H influences treatment assignment W; both treatment W and covariates X affect outcome Y"}
+knitr::include_graphics("figure1_small.svg")
+```
+
+**Federated model fitting.** For each treatment arm \(w \in \{0, 1\}\), we fit a linear outcome model federatively across all \(K\) centers using `dsBaseClient::ds.glm`:
+$$(\tau_w,\, \theta_w) = \underset{\tau,\, \theta}{\arg\min} \sum_{k=1}^K\sum_{i:\, W_{ki} = w} \left(Y_{ki} - \tau - \theta^\top X_{ki}\right)^2.$$
+The federated implementation aggregates sufficient statistics (cross-products of covariates and outcomes) across centers without sharing individual data. Because the outcome model is linear, this yields the exact pooled solution—no approximation is involved.
+
+**Global ATE estimation.** We estimate the average treatment effect via the plug-in G-formula. Each center \(k\) computes its local ATE using the shared model parameters \((\tau_0, \theta_0, \tau_1, \theta_1)\):
+$$\tau_k = \frac{1}{n_k}\sum_{i=1}^{n_k} \left[(\tau_1 + \theta_1^\top X_{ki}) - (\tau_0 + \theta_0^\top X_{ki})\right].$$
+The global estimate is the sample-size-weighted average:
+$$\tau = \sum_{k=1}^K \frac{n_k}{n}\, \tau_k.$$
+These weights \(n_k/n\) target the treatment effect on the pooled population \(\sum_{k=1}^K \alpha_k^\star P_k\), where \(P_k\) is the covariate distribution in center \(k\) and \(\alpha^\star_k = P(H=k)\) is the probability that a random observation comes from center \(k\) (Berenfeld, 2025).
 
 ```{r, eval=TRUE}
-library(DSLite)
-library(DSI)
 library(dsRctFedClient)
 library(dsRctFed)
+library(DSLite)
 library(MASS)
 ```
 
@@ -90,7 +91,7 @@ set.seed(123)
 K <- 5  # number of studies
 d <- 10 # dimension
 n_per_study <- 20 * d
-p_treatment <- c(0.5, 0.5, 0.5, 0.5, 0.5) # probability of assignment 
+p_treatment <- c(0.65, 0.65, 0.65, 0.35, 0.35) # probability of treatment assignment 
 
 # Outcome model parameters
 sigma_noise <- 1.0
