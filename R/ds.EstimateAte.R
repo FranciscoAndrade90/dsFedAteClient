@@ -82,6 +82,8 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name, treatmen
     datasources = datasources
   )
 
+  .check_glm_validity(model_treated, model_control, covariate_names)
+
   ## Extract coefficients -------------------------------------------------------
 
   coef_treated <- model_treated$coefficients
@@ -175,6 +177,27 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name, treatmen
       )
     )
   }
+}
+
+
+#' @keywords internal
+#' @noRd
+#' @importFrom cli cli_abort
+.check_glm_validity <- function(model_treated, model_control, covariate_names) {
+  .failed <- function(model) {
+    errors <- model$errorMessage
+    if (is.null(errors)) return(character(0))
+    rownames(errors)[errors != "No errors"]
+  }
+  failed <- union(.failed(model_treated), .failed(model_control))
+  if (length(failed) == 0L) return(invisible(NULL))
+  n_params <- length(covariate_names) + 1L
+  cli::cli_abort(c(
+    "x" = "DataSHIELD blocked the GLM in {length(failed)} study/studies: {paste(failed, collapse = ', ')}.",
+    "i" = "At least one treatment subset in those studies has too few observations relative to the {n_params} model parameters.",
+    "i" = "DataSHIELD's nfilter.glm threshold requires each arm to have at least n_params / nfilter.glm observations (default: {n_params} / 0.33 = {ceiling(n_params / 0.33)}).",
+    ">" = "Consider reducing the number of covariates, or exclude the affected studies via the `datasources` argument."
+  ))
 }
 
 

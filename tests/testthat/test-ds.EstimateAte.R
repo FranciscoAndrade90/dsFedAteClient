@@ -47,6 +47,43 @@ test_that(".check_args rejects an empty covariate_names vector", {
   expect_error(.check_args("study_data", "Y", "W", character(0)), "covariate_names")
 })
 
+# Sad path: .check_glm_validity -----------------------------------------------
+
+test_that("ds.EstimateAte errors with informative message when disclosure controls block the GLM", {
+  # 45 treated / 5 control: control arm passes nfilter.subset (5 >= 3) but
+  # fails nfilter.glm (3 params / 0.33 ≈ 10 obs required, 5 < 10).
+  set.seed(1)
+  n <- 50
+  imb <- data.frame(W = sample(c(rep(1, 45), rep(0, 5))), X1 = rnorm(n), X2 = rnorm(n))
+  imb$Y <- rnorm(n)
+
+  dslite.server.imb <- DSLite::newDSLiteServer(tables = list(study_data = imb))
+  assign("dslite.server.imb", dslite.server.imb, envir = .GlobalEnv)
+  dslite.server.imb$config(defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  dslite.server.imb$aggregateMethod("localAteDS",                        "localAteDS")
+  dslite.server.imb$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
+  dslite.server.imb$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")
+
+  builder <- DSI::newDSLoginBuilder()
+  builder$append(server = "server_imb", url = "dslite.server.imb",
+                 table = "study_data", driver = "DSLiteDriver")
+  conns_imb <- DSI::datashield.login(logins = builder$build(), assign = FALSE)
+  DSI::datashield.assign.table(conns = conns_imb, symbol = "study_data", table = "study_data")
+
+  expect_error(
+    ds.EstimateAte(
+      datasources     = conns_imb,
+      base_name       = "study_data",
+      outcome_name    = "Y",
+      treatment_name  = "W",
+      covariate_names = c("X1", "X2")
+    ),
+    "DataSHIELD blocked the GLM"
+  )
+
+  DSI::datashield.logout(conns_imb)
+})
+
 # Sad path: .check_string -----------------------------------------------------
 
 test_that(".check_string rejects NULL input", {
