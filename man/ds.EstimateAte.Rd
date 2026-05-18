@@ -5,7 +5,7 @@
 \title{Estimate average treatment effect in federated RCT data}
 \usage{
 ds.EstimateAte(
-  connections,
+  datasources = NULL,
   base_name,
   outcome_name,
   treatment_name,
@@ -13,7 +13,8 @@ ds.EstimateAte(
 )
 }
 \arguments{
-\item{connections}{A list of \code{\link[DSI]{DSConnection-class}} objects obtained after login.}
+\item{datasources}{A list of \code{\link[DSI]{DSConnection-class}} objects obtained after
+login. If \code{NULL}, uses \code{\link[DSI]{datashield.connections_find}}.}
 
 \item{base_name}{A character string specifying the name of the data frame on
 the server side. Must be identical across all servers.}
@@ -28,7 +29,8 @@ variable in the server-side data frame.}
 variables in the server-side data frame.}
 }
 \value{
-A numeric value representing the pooled average treatment effect across all federated data sources.
+A numeric value representing the pooled average treatment effect
+across all federated data sources.
 }
 \description{
 Client-side function that orchestrates the federated computation of an average
@@ -38,4 +40,17 @@ separate linear regressions of the outcome on covariates for treatment and
 control groups across distributed data sources. Local ATEs are computed at each
 server using the regression coefficients, then aggregated proportionally to each
 server's sample size to produce the final pooled estimate.
+}
+\examples{
+\dontrun{
+conns <- DSI::datashield.login(logins = logindata, assign = TRUE)
+ate <- ds.EstimateAte(
+  datasources     = conns,
+  base_name       = "study_data",
+  outcome_name    = "Y",
+  treatment_name  = "W",
+  covariate_names = c("X1", "X2")
+)
+DSI::datashield.logout(conns)
+}
 }

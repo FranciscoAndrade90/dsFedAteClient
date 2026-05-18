@@ -13,6 +13,16 @@ knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>"
 )
+
+eval_chunks <- requireNamespace("dsRctFed",     quietly = TRUE) &&
+               requireNamespace("MASS",         quietly = TRUE) &&
+               requireNamespace("DSLite",       quietly = TRUE) &&
+               requireNamespace("dsBaseClient", quietly = TRUE)
+
+knitr::opts_hooks$set(eval = function(options) {
+  if (isTRUE(options$eval) && !eval_chunks) options$eval <- FALSE
+  options
+})
 ```
 
 ```{r setup, eval = FALSE}
@@ -203,10 +213,8 @@ base_name <- "base"                    # Name of the dataset symbol on each serv
 outcome_name <- "Y"                    # Outcome variable
 treatment_name <- "W"                  # Treatment variable
 covariate_names <- paste0("X", 1:d)    # Covariates X1, X2, ..., Xd
-connections <- conns                   # connections (logins)
-
 federated_ate <- ds.EstimateAte(
-  connections = conns,
+  datasources = conns,
   base_name = base_name,
   outcome_name = outcome_name,
   treatment_name = treatment_name,
