@@ -119,6 +119,9 @@ X_mat    <- as.matrix(pooled_data[, covariate_names, drop = FALSE])
 x_bar    <- colMeans(X_mat, na.rm = TRUE)
 pooled_ate <- as.numeric(tau_diff + sum(x_bar * gamma_diff))
 
-print(abs(pooled_ate - federated_ate))
+cat("Federated ATE:  ", federated_ate$ate, "\n")
+cat("95% CI:         [", federated_ate$ci_lower, ",", federated_ate$ci_upper, "]\n")
+cat("Variance:       ", federated_ate$variance, "\n")
+print(abs(pooled_ate - federated_ate$ate))
 
 DSI::datashield.logout(conns)

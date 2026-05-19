@@ -1,31 +1,48 @@
 #' Estimate average treatment effect in federated RCT data
 #'
-#' Client-side function that orchestrates the federated computation of an average
-#' treatment effect (ATE) for data collected in a randomized controlled trial (RCT)
-#' setting using DataSHIELD. The function uses \code{\link[dsBaseClient]{ds.glm}} to perform
-#' separate linear regressions of the outcome on covariates for treatment and
-#' control groups across distributed data sources. Local ATEs are computed at each
-#' server using the regression coefficients, then aggregated proportionally to each
-#' server's sample size to produce the final pooled estimate.
+#' Client-side function that orchestrates the federated computation of an
+#' average treatment effect (ATE) and its variance for data collected in a
+#' randomised controlled trial (RCT) setting using DataSHIELD.
 #'
-#' @param datasources A list of \code{\link[DSI]{DSConnection-class}} objects obtained after
-#'   login. If \code{NULL}, uses \code{\link[DSI]{datashield.connections_find}}.
-#' @param base_name A character string specifying the name of the data frame on
-#'   the server side. Must be identical across all servers.
-#' @param outcome_name A character string specifying the name of the outcome
-#'   variable in the server-side data frame.
-#' @param treatment_name A character string specifying the name of the treatment
-#'   variable in the server-side data frame.
-#' @param covariate_names A character vector specifying the names of covariate
-#'   variables in the server-side data frame.
+#' The function fits separate arm-specific linear models via
+#' \code{\link[dsBaseClient]{ds.glm}}, broadcasts the pooled coefficients back
+#' to the servers, and collects the quantities needed for the delta-method
+#' variance in a single additional aggregate call (\code{localAteDS}).
 #'
-#' @return A numeric value representing the pooled average treatment effect
-#'   across all federated data sources.
+#' The variance estimator has two components (see \code{federated_variance.pdf}
+#' for derivation):
+#' \enumerate{
+#'   \item OLS noise: \eqn{\hat\sigma^2 / (n\,\hat p(1-\hat p))}, where
+#'     \eqn{\hat\sigma^2} uses the pooled df \eqn{n - 2(d+1)}.
+#'   \item Covariate-mean uncertainty:
+#'     \eqn{\Delta\hat\beta^\top\hat\Sigma\Delta\hat\beta / n}, pooled from
+#'     per-server scatter scalars.
+#' }
+#'
+#' @param datasources A list of \code{\link[DSI]{DSConnection-class}} objects.
+#'   If \code{NULL}, uses \code{\link[DSI]{datashield.connections_find}}.
+#' @param base_name A character string naming the server-side data frame
+#'   (must be identical across all servers).
+#' @param outcome_name A character string naming the outcome variable.
+#' @param treatment_name A character string naming the binary treatment
+#'   indicator.
+#' @param covariate_names A character vector of covariate names.
+#'
+#' @return A named list with seven elements:
+#'   \describe{
+#'     \item{ate}{Pooled GD ATE estimate \eqn{\hat\tau}.}
+#'     \item{variance}{Delta-method variance estimate \eqn{\hat V(\hat\tau)}.}
+#'     \item{ci_lower}{Lower bound of the approximate 95-percent confidence interval.}
+#'     \item{ci_upper}{Upper bound of the approximate 95-percent confidence interval.}
+#'     \item{n_total}{Total sample size across all servers.}
+#'     \item{n_k}{Named integer vector of per-server sample sizes.}
+#'     \item{ate_k}{Named numeric vector of per-server local ATE estimates.}
+#'   }
 #' @importFrom DSI datashield.connections_find
 #' @examples
 #' \dontrun{
 #' conns <- DSI::datashield.login(logins = logindata, assign = TRUE)
-#' ate <- ds.EstimateAte(
+#' result <- ds.EstimateAte(
 #'   datasources     = conns,
 #'   base_name       = "study_data",
 #'   outcome_name    = "Y",
@@ -35,7 +52,8 @@
 #' DSI::datashield.logout(conns)
 #' }
 #' @export
-ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name, treatment_name, covariate_names) {
+ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
+                           treatment_name, covariate_names) {
   if (is.null(datasources)) {
     datasources <- DSI::datashield.connections_find()
   }
@@ -43,7 +61,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name, treatmen
   .check_datasources(datasources)
   .check_args(base_name, outcome_name, treatment_name, covariate_names)
 
-  # Regression over the treated/control groups ----------------------------------
+  # Subset into arm-specific server-side objects --------------------------------
 
   treatment_indicator <- paste0(base_name, "$", treatment_name)
   treated_name        <- paste0(base_name, "_treated")
@@ -68,6 +86,8 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name, treatmen
     datasources      = datasources
   )
 
+  # Federated arm-specific OLS --------------------------------------------------
+
   model_treated <- dsBaseClient::ds.glm(
     formula     = formula,
     data        = treated_name,
@@ -84,7 +104,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name, treatmen
 
   .check_glm_validity(model_treated, model_control, covariate_names)
 
-  ## Extract coefficients -------------------------------------------------------
+  # Extract individual arm coefficients -----------------------------------------
 
   coef_treated <- model_treated$coefficients
   coef_control <- model_control$coefficients
@@ -94,68 +114,155 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name, treatmen
   beta1  <- coef_treated[covariate_names, "Estimate"]
   beta0  <- coef_control[covariate_names, "Estimate"]
 
-  tau_diff   <- alpha1 - alpha0
-  gamma_diff <- beta1 - beta0
-
-  # Send coefficients and ask for local ATE ------------------------------------
+  # Collect local statistics from all servers -----------------------------------
 
   local_results <- .localAte(
     datasources     = datasources,
     base_name       = base_name,
+    outcome_name    = outcome_name,
     covariate_names = covariate_names,
     treatment_name  = treatment_name,
-    tau             = tau_diff,
-    gamma           = gamma_diff
+    alpha0          = alpha0,
+    beta0           = beta0,
+    alpha1          = alpha1,
+    beta1           = beta1
   )
 
-  # Final aggregation ----------------------------------------------------------
-
   n_k        <- local_results$n_k
-  n          <- sum(n_k)
+  n_k_1      <- local_results$n_k_1
+  tau_k      <- local_results$tau_k
+  s_k_scalar <- local_results$s_k_scalar
+  rss_k      <- local_results$rss_k
+  x_bar_k    <- local_results$x_bar_k   # K × d matrix
+
+  names(n_k)   <- names(datasources)
+  names(tau_k) <- names(datasources)
+
+  # Aggregation -----------------------------------------------------------------
+
+  n      <- sum(n_k)
+  n_1    <- sum(n_k_1)
+  gamma  <- beta1 - beta0
+
   sw_weights <- n_k / n
-  ate_hat    <- sum(sw_weights * local_results$tau_k)
+  ate_hat    <- sum(sw_weights * tau_k)
 
-  return(ate_hat)
-}
+  .check_sample_sizes(n_k - n_k_1, n_k_1, length(covariate_names))
 
+  variance <- .compute_variance(
+    n          = n,
+    n_1        = n_1,
+    rss_k      = rss_k,
+    s_k_scalar = s_k_scalar,
+    n_k        = n_k,
+    x_bar_k    = x_bar_k,
+    gamma       = gamma
+  )
 
-#' @keywords internal
-#' @noRd
-#' @importFrom DSI datashield.aggregate
-.localAte <- function(datasources, base_name, covariate_names, treatment_name, tau, gamma) {
-  K     <- length(datasources)
-  n_k   <- integer(K)
-  tau_k <- numeric(K)
-
-  covariate_names_str <- paste(covariate_names, collapse = ",")
-  gamma_str           <- paste(as.character(gamma), collapse = ",")
-  tau_str             <- as.character(tau)
-
-  cally   <- call("localAteDS", base_name, covariate_names_str, treatment_name, tau_str, gamma_str)
-  results <- DSI::datashield.aggregate(conns = datasources, expr = cally)
-
-  for (k in seq_len(K)) {
-    res      <- results[[k]]
-    n_k[k]   <- res$n_k
-    tau_k[k] <- res$tau_k
-  }
+  se       <- sqrt(variance)
+  ci_lower <- ate_hat - 1.96 * se
+  ci_upper <- ate_hat + 1.96 * se
 
   return(list(
-    n_k   = n_k,
-    tau_k = tau_k
+    ate      = ate_hat,
+    variance = variance,
+    ci_lower = ci_lower,
+    ci_upper = ci_upper,
+    n_total  = n,
+    n_k      = n_k,
+    ate_k    = tau_k
   ))
 }
 
 
+# Internal helpers -------------------------------------------------------------
+
 #' @keywords internal
 #' @noRd
-#' @importFrom methods is
-#' @importFrom cli cli_abort
-.check_datasources <- function(datasources) {
-  if (!(is.list(datasources) &&
-        all(unlist(lapply(datasources, function(d) methods::is(d, "DSConnection")))))) {
-    cli::cli_abort("'datasources' must be a list of DSConnection objects.")
+#' @importFrom DSI datashield.aggregate
+.localAte <- function(datasources, base_name, outcome_name, covariate_names,
+                      treatment_name, alpha0, beta0, alpha1, beta1) {
+  K <- length(datasources)
+  d <- length(beta0)
+
+  n_k        <- integer(K)
+  n_k_1      <- integer(K)
+  tau_k      <- numeric(K)
+  s_k_scalar <- numeric(K)
+  rss_k      <- numeric(K)
+  x_bar_k    <- matrix(0.0, nrow = K, ncol = d)
+
+  covariate_names_str <- paste(covariate_names, collapse = ",")
+  alpha0_str          <- as.character(alpha0)
+  alpha1_str          <- as.character(alpha1)
+  beta0_str           <- paste(as.character(beta0), collapse = ",")
+  beta1_str           <- paste(as.character(beta1), collapse = ",")
+
+  cally <- call(
+    "localAteDS",
+    base_name, outcome_name, covariate_names_str, treatment_name,
+    alpha0_str, beta0_str, alpha1_str, beta1_str
+  )
+  results <- DSI::datashield.aggregate(conns = datasources, expr = cally)
+
+  for (k in seq_len(K)) {
+    res            <- results[[k]]
+    n_k[k]        <- res$n_k
+    n_k_1[k]      <- res$n_k_1
+    tau_k[k]      <- res$tau_k
+    s_k_scalar[k] <- res$s_k_scalar
+    rss_k[k]      <- res$rss_k
+    x_bar_k[k, ]  <- res$x_bar_k
   }
+
+  list(
+    n_k        = n_k,
+    n_k_1      = n_k_1,
+    tau_k      = tau_k,
+    s_k_scalar = s_k_scalar,
+    rss_k      = rss_k,
+    x_bar_k    = x_bar_k
+  )
+}
+
+
+#' @keywords internal
+#' @noRd
+#' @importFrom cli cli_warn
+.check_sample_sizes <- function(n_k_0, n_k_1, d) {
+  threshold <- 5L * (d + 1L)
+  n_0 <- sum(n_k_0)
+  n_1 <- sum(n_k_1)
+  if (n_0 < threshold || n_1 < threshold) {
+    cli::cli_warn(c(
+      "!" = "Asymptotic approximation may be unreliable.",
+      "i" = paste0(
+        "Federated arm sizes n^(0)=", n_0, ", n^(1)=", n_1,
+        " should both exceed 5*(d+1)=", threshold, "."
+      )
+    ))
+  }
+}
+
+
+#' @keywords internal
+#' @noRd
+.compute_variance <- function(n, n_1, rss_k, s_k_scalar, n_k, x_bar_k, gamma) {
+  d <- length(gamma)
+
+  # First term: OLS noise with pooled df = n - 2(d+1)
+  p_hat      <- n_1 / n
+  sigma2_hat <- sum(rss_k) / (n - 2L * (d + 1L))
+  first_term <- sigma2_hat / (n * p_hat * (1 - p_hat))
+
+  # Second term: covariate-mean uncertainty Δβᵀ Σ̂ Δβ / n
+  # proj_local_k = X̄_k ᵀ Δβ̂ (K-vector)
+  proj_local  <- as.numeric(x_bar_k %*% gamma)
+  proj_global <- sum(n_k * proj_local) / n
+  tss         <- sum(s_k_scalar + n_k * (proj_local - proj_global)^2)
+  second_term <- tss / (n * (n - 1L))
+
+  first_term + second_term
 }
 
 
@@ -163,7 +270,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name, treatmen
 #' @noRd
 #' @importFrom cli cli_abort
 .check_args <- function(base_name, outcome_name, treatment_name, covariate_names) {
-  .check_string(base_name, "base_name")
+  .check_string(base_name,    "base_name")
   .check_string(outcome_name, "outcome_name")
   .check_string(treatment_name, "treatment_name")
   if (is.null(covariate_names)) {
@@ -200,20 +307,3 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name, treatmen
   ))
 }
 
-
-#' @keywords internal
-#' @noRd
-#' @importFrom cli cli_abort
-.check_string <- function(x, arg_name) {
-  if (is.null(x)) {
-    cli::cli_abort("`{arg_name}` must not be NULL")
-  }
-  if (!is.character(x) || length(x) != 1L) {
-    cli::cli_abort(
-      c(
-        "x" = "`{arg_name}` must be a single character string",
-        "i" = "You provided an object of class {class(x)}"
-      )
-    )
-  }
-}

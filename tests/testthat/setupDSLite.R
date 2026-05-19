@@ -1,5 +1,17 @@
 library(DSLite)
-library(dsRctFed)
+# devtools::test() runs from tests/testthat/ so the relative path resolves.
+# devtools::check() copies to a temp dir where it does not — fall back to the
+# installed package (if available) or skip all tests.
+server_src <- "../../../dsRctFed"
+if (dir.exists(server_src)) {
+  devtools::load_all(server_src, quiet = TRUE)
+} else if (requireNamespace("dsRctFed", quietly = TRUE)) {
+  library(dsRctFed)
+} else {
+  setupDSLite <- function() {
+    testthat::skip("dsRctFed is not installed and source path is unavailable")
+  }
+}
 
 setupDSLite <- function() {
   set.seed(42)

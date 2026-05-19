@@ -13,38 +13,56 @@ ds.EstimateAte(
 )
 }
 \arguments{
-\item{datasources}{A list of \code{\link[DSI]{DSConnection-class}} objects obtained after
-login. If \code{NULL}, uses \code{\link[DSI]{datashield.connections_find}}.}
+\item{datasources}{A list of \code{\link[DSI]{DSConnection-class}} objects.
+If \code{NULL}, uses \code{\link[DSI]{datashield.connections_find}}.}
 
-\item{base_name}{A character string specifying the name of the data frame on
-the server side. Must be identical across all servers.}
+\item{base_name}{A character string naming the server-side data frame
+(must be identical across all servers).}
 
-\item{outcome_name}{A character string specifying the name of the outcome
-variable in the server-side data frame.}
+\item{outcome_name}{A character string naming the outcome variable.}
 
-\item{treatment_name}{A character string specifying the name of the treatment
-variable in the server-side data frame.}
+\item{treatment_name}{A character string naming the binary treatment
+indicator.}
 
-\item{covariate_names}{A character vector specifying the names of covariate
-variables in the server-side data frame.}
+\item{covariate_names}{A character vector of covariate names.}
 }
 \value{
-A numeric value representing the pooled average treatment effect
-across all federated data sources.
+A named list with seven elements:
+\describe{
+\item{ate}{Pooled GD ATE estimate \eqn{\hat\tau}.}
+\item{variance}{Delta-method variance estimate \eqn{\hat V(\hat\tau)}.}
+\item{ci_lower}{Lower bound of the approximate 95-percent confidence interval.}
+\item{ci_upper}{Upper bound of the approximate 95-percent confidence interval.}
+\item{n_total}{Total sample size across all servers.}
+\item{n_k}{Named integer vector of per-server sample sizes.}
+\item{ate_k}{Named numeric vector of per-server local ATE estimates.}
+}
 }
 \description{
-Client-side function that orchestrates the federated computation of an average
-treatment effect (ATE) for data collected in a randomized controlled trial (RCT)
-setting using DataSHIELD. The function uses \code{\link[dsBaseClient]{ds.glm}} to perform
-separate linear regressions of the outcome on covariates for treatment and
-control groups across distributed data sources. Local ATEs are computed at each
-server using the regression coefficients, then aggregated proportionally to each
-server's sample size to produce the final pooled estimate.
+Client-side function that orchestrates the federated computation of an
+average treatment effect (ATE) and its variance for data collected in a
+randomised controlled trial (RCT) setting using DataSHIELD.
+}
+\details{
+The function fits separate arm-specific linear models via
+\code{\link[dsBaseClient]{ds.glm}}, broadcasts the pooled coefficients back
+to the servers, and collects the quantities needed for the delta-method
+variance in a single additional aggregate call (\code{localAteDS}).
+
+The variance estimator has two components (see \code{federated_variance.pdf}
+for derivation):
+\enumerate{
+\item OLS noise: \eqn{\hat\sigma^2 / (n\,\hat p(1-\hat p))}, where
+\eqn{\hat\sigma^2} uses the pooled df \eqn{n - 2(d+1)}.
+\item Covariate-mean uncertainty:
+\eqn{\Delta\hat\beta^\top\hat\Sigma\Delta\hat\beta / n}, pooled from
+per-server scatter scalars.
+}
 }
 \examples{
 \dontrun{
 conns <- DSI::datashield.login(logins = logindata, assign = TRUE)
-ate <- ds.EstimateAte(
+result <- ds.EstimateAte(
   datasources     = conns,
   base_name       = "study_data",
   outcome_name    = "Y",

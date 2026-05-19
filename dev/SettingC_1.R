@@ -230,10 +230,10 @@ cat("Calling: ds.EstimateAte(conns, '", base_name, "', '", outcome_name,
     "', '", treatment_name, "', c('", paste(covariate_names, collapse = "', '"), "'))\n\n", sep = "")
 
 federated_ate <- ds.EstimateAte(
-  connections = conns,
-  base_name = base_name,
-  outcome_name = outcome_name,
-  treatment_name = treatment_name,
+  datasources     = conns,
+  base_name       = base_name,
+  outcome_name    = outcome_name,
+  treatment_name  = treatment_name,
   covariate_names = covariate_names
 )
 
