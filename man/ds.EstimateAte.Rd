@@ -29,7 +29,7 @@ indicator.}
 \value{
 A named list with seven elements:
 \describe{
-\item{ate}{Pooled GD ATE estimate \eqn{\hat\tau}.}
+\item{ate}{Federated ATE estimate \eqn{\hat\tau}.}
 \item{variance}{Delta-method variance estimate \eqn{\hat V(\hat\tau)}.}
 \item{ci_lower}{Lower bound of the approximate 95-percent confidence interval.}
 \item{ci_upper}{Upper bound of the approximate 95-percent confidence interval.}
@@ -49,8 +49,7 @@ The function fits separate arm-specific linear models via
 to the servers, and collects the quantities needed for the delta-method
 variance in a single additional aggregate call (\code{localAteDS}).
 
-The variance estimator has two components (see \code{federated_variance.pdf}
-for derivation):
+The variance estimator has two components:
 \enumerate{
 \item OLS noise: \eqn{\hat\sigma^2 / (n\,\hat p(1-\hat p))}, where
 \eqn{\hat\sigma^2} uses the pooled df \eqn{n - 2(d+1)}.

@@ -100,56 +100,84 @@ test_that("ds.EstimateAte n_total matches data size", {
   expect_equal(sum(result$n_k), result$n_total)
 })
 
+# compute_variance = FALSE -----------------------------------------------------
+
+test_that("ds.EstimateAte with compute_variance=FALSE returns four elements", {
+  result <- ds.EstimateAte(
+    datasources      = conns,
+    base_name        = "study_data",
+    outcome_name     = "Y",
+    treatment_name   = "W",
+    covariate_names  = c("X1", "X2"),
+    compute_variance = FALSE
+  )
+  expect_named(result, c("ate", "n_total", "n_k", "ate_k"))
+})
+
+test_that("ds.EstimateAte compute_variance=FALSE ATE matches full result", {
+  full     <- ds.EstimateAte(
+    datasources     = conns, base_name = "study_data",
+    outcome_name = "Y", treatment_name = "W", covariate_names = c("X1", "X2")
+  )
+  ate_only <- ds.EstimateAte(
+    datasources = conns, base_name = "study_data",
+    outcome_name = "Y", treatment_name = "W", covariate_names = c("X1", "X2"),
+    compute_variance = FALSE
+  )
+  expect_equal(ate_only$ate,   full$ate)
+  expect_equal(ate_only$n_k,   full$n_k)
+  expect_equal(ate_only$ate_k, full$ate_k)
+})
+
 # .compute_variance ------------------------------------------------------------
 
 test_that(".compute_variance returns a positive scalar", {
-  set.seed(1)
-  n      <- 100L
-  n_1    <- 50L
-  d      <- 2L
-  rss_k  <- c(20.0, 15.0)
-  s_k    <- c(3.0, 2.5)
-  n_k    <- c(60L, 40L)
-  x_bar  <- matrix(c(0.1, -0.2, 0.3, 0.0), nrow = 2, ncol = 2)
-  gamma  <- c(0.2, -0.1)
+  n       <- 100L
+  n_1     <- 50L
+  d       <- 2L
+  rss_k   <- c(20.0, 15.0)
+  s_k     <- c(3.0, 2.5)
+  n_k     <- c(60L, 40L)
+  tau_k   <- c(0.54, 0.56)
+  ate_hat <- sum(n_k * tau_k) / n
 
-  v <- .compute_variance(n, n_1, rss_k, s_k, n_k, x_bar, gamma)
+  v <- .compute_variance(n, n_1, rss_k, s_k, n_k, tau_k, ate_hat, d)
   expect_length(v, 1L)
   expect_gt(v, 0)
   expect_false(is.na(v))
 })
 
 test_that(".compute_variance first term equals sigma2 / (n * p * (1-p))", {
-  n      <- 100L
-  n_1    <- 50L
-  d      <- 1L
-  rss_k  <- c(19.6)              # sigma2_hat = 19.6 / (100 - 4) = 0.204...
-  s_k    <- 0.0                  # zero second term
-  n_k    <- 100L
-  x_bar  <- matrix(0, nrow = 1, ncol = 1)
-  gamma  <- 0.0
+  n       <- 100L
+  n_1     <- 50L
+  d       <- 1L
+  rss_k   <- c(19.6)   # sigma2_hat = 19.6 / (100 - 4)
+  s_k     <- 0.0       # zero within-site scatter
+  n_k     <- 100L
+  tau_k   <- 0.5       # τ̂_k = τ̂ → between-site term = 0
+  ate_hat <- 0.5
 
-  v          <- .compute_variance(n, n_1, rss_k, s_k, n_k, x_bar, gamma)
+  v          <- .compute_variance(n, n_1, rss_k, s_k, n_k, tau_k, ate_hat, d)
   sigma2_hat <- rss_k / (n - 2L * (d + 1L))
   p_hat      <- n_1 / n
   expected   <- sigma2_hat / (n * p_hat * (1 - p_hat))
   expect_equal(v, expected, tolerance = 1e-10)
 })
 
-test_that(".compute_variance second term is zero when gamma is zero", {
-  n      <- 100L
-  n_1    <- 50L
-  d      <- 2L
-  rss_k  <- c(10.0, 8.0)
-  n_k    <- c(60L, 40L)
-  x_bar  <- matrix(c(0.1, -0.2, 0.3, 0.0), nrow = 2, ncol = 2)
-  gamma  <- c(0.0, 0.0)
+test_that(".compute_variance second term is zero when all tau_k equal ate_hat", {
+  n       <- 100L
+  n_1     <- 50L
+  d       <- 2L
+  rss_k   <- c(10.0, 8.0)
+  n_k     <- c(60L, 40L)
+  tau_k   <- c(0.5, 0.5)   # τ̂_k − τ̂ = 0; s_k_scalar also zero
+  ate_hat <- 0.5
 
-  v_with_gamma_zero <- .compute_variance(n, n_1, rss_k, c(0, 0), n_k, x_bar, gamma)
-  sigma2_hat <- sum(rss_k) / (n - 2L * (d + 1L))
-  p_hat      <- n_1 / n
-  first_only <- sigma2_hat / (n * p_hat * (1 - p_hat))
-  expect_equal(v_with_gamma_zero, first_only, tolerance = 1e-10)
+  v_second_zero <- .compute_variance(n, n_1, rss_k, c(0, 0), n_k, tau_k, ate_hat, d)
+  sigma2_hat    <- sum(rss_k) / (n - 2L * (d + 1L))
+  p_hat         <- n_1 / n
+  first_only    <- sigma2_hat / (n * p_hat * (1 - p_hat))
+  expect_equal(v_second_zero, first_only, tolerance = 1e-10)
 })
 
 # .check_sample_sizes ----------------------------------------------------------

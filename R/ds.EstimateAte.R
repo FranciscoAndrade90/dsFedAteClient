@@ -1,16 +1,21 @@
 #' Estimate average treatment effect in federated RCT data
 #'
 #' Client-side function that orchestrates the federated computation of an
-#' average treatment effect (ATE) and its variance for data collected in a
-#' randomised controlled trial (RCT) setting using DataSHIELD.
+#' average treatment effect (ATE) and, optionally, its delta-method variance
+#' and confidence interval, for data collected in a randomised controlled trial
+#' (RCT) setting using DataSHIELD.
 #'
 #' The function fits separate arm-specific linear models via
 #' \code{\link[dsBaseClient]{ds.glm}}, broadcasts the pooled coefficients back
-#' to the servers, and collects the quantities needed for the delta-method
-#' variance in a single additional aggregate call (\code{localAteDS}).
+#' to the servers, and collects local statistics in a single additional
+#' aggregate call (\code{localAteDS}).  Setting \code{compute_variance = FALSE}
+#' limits the information returned by each server to the three scalars strictly
+#' needed for the point estimate (\eqn{n_k}, \eqn{n_k^{(1)}},
+#' \eqn{\hat\tau_k}), omitting the residual sum of squares and projected scatter
+#' that are required for the variance but constitute additional disclosure.
 #'
-#' The variance estimator has two components (see \code{federated_variance.pdf}
-#' for derivation):
+#' When \code{compute_variance = TRUE} (the default), the variance estimator
+#' has two components:
 #' \enumerate{
 #'   \item OLS noise: \eqn{\hat\sigma^2 / (n\,\hat p(1-\hat p))}, where
 #'     \eqn{\hat\sigma^2} uses the pooled df \eqn{n - 2(d+1)}.
@@ -27,10 +32,16 @@
 #' @param treatment_name A character string naming the binary treatment
 #'   indicator.
 #' @param covariate_names A character vector of covariate names.
+#' @param compute_variance Logical. If \code{TRUE} (default), each server also
+#'   returns the residual sum of squares and projected scatter scalar needed for
+#'   the delta-method variance and 95\% confidence interval.  Set to
+#'   \code{FALSE} to request only the point estimate, minimizing the
+#'   information disclosed by each server.
 #'
-#' @return A named list with seven elements:
+#' @return When \code{compute_variance = TRUE}, a named list with seven
+#'   elements:
 #'   \describe{
-#'     \item{ate}{Pooled GD ATE estimate \eqn{\hat\tau}.}
+#'     \item{ate}{Federated ATE estimate \eqn{\hat\tau}.}
 #'     \item{variance}{Delta-method variance estimate \eqn{\hat V(\hat\tau)}.}
 #'     \item{ci_lower}{Lower bound of the approximate 95-percent confidence interval.}
 #'     \item{ci_upper}{Upper bound of the approximate 95-percent confidence interval.}
@@ -38,10 +49,13 @@
 #'     \item{n_k}{Named integer vector of per-server sample sizes.}
 #'     \item{ate_k}{Named numeric vector of per-server local ATE estimates.}
 #'   }
+#'   When \code{compute_variance = FALSE}, a named list with four elements:
+#'   \code{ate}, \code{n_total}, \code{n_k}, \code{ate_k}.
 #' @importFrom DSI datashield.connections_find
 #' @examples
 #' \dontrun{
 #' conns <- DSI::datashield.login(logins = logindata, assign = TRUE)
+#' # Full result with variance and CI
 #' result <- ds.EstimateAte(
 #'   datasources     = conns,
 #'   base_name       = "study_data",
@@ -49,11 +63,21 @@
 #'   treatment_name  = "W",
 #'   covariate_names = c("X1", "X2")
 #' )
+#' # Point estimate only (less disclosure)
+#' result_ate <- ds.EstimateAte(
+#'   datasources      = conns,
+#'   base_name        = "study_data",
+#'   outcome_name     = "Y",
+#'   treatment_name   = "W",
+#'   covariate_names  = c("X1", "X2"),
+#'   compute_variance = FALSE
+#' )
 #' DSI::datashield.logout(conns)
 #' }
 #' @export
 ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
-                           treatment_name, covariate_names) {
+                           treatment_name, covariate_names,
+                           compute_variance = TRUE) {
   if (is.null(datasources)) {
     datasources <- DSI::datashield.connections_find()
   }
@@ -117,46 +141,52 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
   # Collect local statistics from all servers -----------------------------------
 
   local_results <- .localAte(
-    datasources     = datasources,
-    base_name       = base_name,
-    outcome_name    = outcome_name,
-    covariate_names = covariate_names,
-    treatment_name  = treatment_name,
-    alpha0          = alpha0,
-    beta0           = beta0,
-    alpha1          = alpha1,
-    beta1           = beta1
+    datasources      = datasources,
+    base_name        = base_name,
+    outcome_name     = outcome_name,
+    covariate_names  = covariate_names,
+    treatment_name   = treatment_name,
+    alpha0           = alpha0,
+    beta0            = beta0,
+    alpha1           = alpha1,
+    beta1            = beta1,
+    compute_variance = compute_variance
   )
 
-  n_k        <- local_results$n_k
-  n_k_1      <- local_results$n_k_1
-  tau_k      <- local_results$tau_k
-  s_k_scalar <- local_results$s_k_scalar
-  rss_k      <- local_results$rss_k
-  x_bar_k    <- local_results$x_bar_k   # K × d matrix
+  n_k   <- local_results$n_k
+  n_k_1 <- local_results$n_k_1
+  tau_k <- local_results$tau_k
 
   names(n_k)   <- names(datasources)
   names(tau_k) <- names(datasources)
 
   # Aggregation -----------------------------------------------------------------
 
-  n      <- sum(n_k)
-  n_1    <- sum(n_k_1)
-  gamma  <- beta1 - beta0
-
+  n          <- sum(n_k)
+  n_1        <- sum(n_k_1)
   sw_weights <- n_k / n
   ate_hat    <- sum(sw_weights * tau_k)
 
   .check_sample_sizes(n_k - n_k_1, n_k_1, length(covariate_names))
 
+  if (!compute_variance) {
+    return(list(
+      ate     = ate_hat,
+      n_total = n,
+      n_k     = n_k,
+      ate_k   = tau_k
+    ))
+  }
+
   variance <- .compute_variance(
     n          = n,
     n_1        = n_1,
-    rss_k      = rss_k,
-    s_k_scalar = s_k_scalar,
+    rss_k      = local_results$rss_k,
+    s_k_scalar = local_results$s_k_scalar,
     n_k        = n_k,
-    x_bar_k    = x_bar_k,
-    gamma       = gamma
+    tau_k      = tau_k,
+    ate_hat    = ate_hat,
+    d          = length(covariate_names)
   )
 
   se       <- sqrt(variance)
@@ -181,16 +211,13 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 #' @noRd
 #' @importFrom DSI datashield.aggregate
 .localAte <- function(datasources, base_name, outcome_name, covariate_names,
-                      treatment_name, alpha0, beta0, alpha1, beta1) {
+                      treatment_name, alpha0, beta0, alpha1, beta1,
+                      compute_variance = TRUE) {
   K <- length(datasources)
-  d <- length(beta0)
 
-  n_k        <- integer(K)
-  n_k_1      <- integer(K)
-  tau_k      <- numeric(K)
-  s_k_scalar <- numeric(K)
-  rss_k      <- numeric(K)
-  x_bar_k    <- matrix(0.0, nrow = K, ncol = d)
+  n_k   <- integer(K)
+  n_k_1 <- integer(K)
+  tau_k <- numeric(K)
 
   covariate_names_str <- paste(covariate_names, collapse = ",")
   alpha0_str          <- as.character(alpha0)
@@ -201,65 +228,46 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
   cally <- call(
     "localAteDS",
     base_name, outcome_name, covariate_names_str, treatment_name,
-    alpha0_str, beta0_str, alpha1_str, beta1_str
+    alpha0_str, beta0_str, alpha1_str, beta1_str,
+    compute_variance
   )
   results <- DSI::datashield.aggregate(conns = datasources, expr = cally)
 
+  if (compute_variance) {
+    s_k_scalar <- numeric(K)
+    rss_k      <- numeric(K)
+  }
+
   for (k in seq_len(K)) {
-    res            <- results[[k]]
-    n_k[k]        <- res$n_k
-    n_k_1[k]      <- res$n_k_1
-    tau_k[k]      <- res$tau_k
-    s_k_scalar[k] <- res$s_k_scalar
-    rss_k[k]      <- res$rss_k
-    x_bar_k[k, ]  <- res$x_bar_k
+    res       <- results[[k]]
+    n_k[k]   <- res$n_k
+    n_k_1[k] <- res$n_k_1
+    tau_k[k] <- res$tau_k
+    if (compute_variance) {
+      s_k_scalar[k] <- res$s_k_scalar
+      rss_k[k]      <- res$rss_k
+    }
   }
 
-  list(
-    n_k        = n_k,
-    n_k_1      = n_k_1,
-    tau_k      = tau_k,
-    s_k_scalar = s_k_scalar,
-    rss_k      = rss_k,
-    x_bar_k    = x_bar_k
-  )
+  out <- list(n_k = n_k, n_k_1 = n_k_1, tau_k = tau_k)
+  if (compute_variance) {
+    out$s_k_scalar <- s_k_scalar
+    out$rss_k      <- rss_k
+  }
+  out
 }
-
 
 #' @keywords internal
 #' @noRd
-#' @importFrom cli cli_warn
-.check_sample_sizes <- function(n_k_0, n_k_1, d) {
-  threshold <- 5L * (d + 1L)
-  n_0 <- sum(n_k_0)
-  n_1 <- sum(n_k_1)
-  if (n_0 < threshold || n_1 < threshold) {
-    cli::cli_warn(c(
-      "!" = "Asymptotic approximation may be unreliable.",
-      "i" = paste0(
-        "Federated arm sizes n^(0)=", n_0, ", n^(1)=", n_1,
-        " should both exceed 5*(d+1)=", threshold, "."
-      )
-    ))
-  }
-}
-
-
-#' @keywords internal
-#' @noRd
-.compute_variance <- function(n, n_1, rss_k, s_k_scalar, n_k, x_bar_k, gamma) {
-  d <- length(gamma)
-
-  # First term: OLS noise with pooled df = n - 2(d+1)
+.compute_variance <- function(n, n_1, rss_k, s_k_scalar, n_k, tau_k, ate_hat, d) {
+  # First term: OLS noise with pooled degrees of freedom = n - 2(d+1)
   p_hat      <- n_1 / n
   sigma2_hat <- sum(rss_k) / (n - 2L * (d + 1L))
   first_term <- sigma2_hat / (n * p_hat * (1 - p_hat))
 
-  # Second term: covariate-mean uncertainty Δβᵀ Σ̂ Δβ / n
-  # proj_local_k = X̄_k ᵀ Δβ̂ (K-vector)
-  proj_local  <- as.numeric(x_bar_k %*% gamma)
-  proj_global <- sum(n_k * proj_local) / n
-  tss         <- sum(s_k_scalar + n_k * (proj_local - proj_global)^2)
+  # Second term: Δβ̂ᵀ Σ̂ Δβ̂ / n via parallel-axis decomposition.
+  # X̄_k · Δβ̂ − X̄ · Δβ̂ = τ̂_k − τ̂  (the α̂¹ − α̂⁰ terms cancel).
+  tss         <- sum(s_k_scalar + n_k * (tau_k - ate_hat)^2)
   second_term <- tss / (n * (n - 1L))
 
   first_term + second_term
@@ -307,3 +315,21 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
   ))
 }
 
+
+#' @keywords internal
+#' @noRd
+#' @importFrom cli cli_warn
+.check_sample_sizes <- function(n_k_0, n_k_1, d) {
+  threshold <- 5L * (d + 1L)
+  n_0 <- sum(n_k_0)
+  n_1 <- sum(n_k_1)
+  if (n_0 < threshold || n_1 < threshold) {
+    cli::cli_warn(c(
+      "!" = "Asymptotic approximation may be unreliable.",
+      "i" = paste0(
+        "Federated arm sizes n^(0)=", n_0, ", n^(1)=", n_1,
+        " should both exceed 5*(d+1)=", threshold, "."
+      )
+    ))
+  }
+}

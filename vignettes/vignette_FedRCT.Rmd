@@ -69,6 +69,11 @@ in a fully reproducible way.
 
 **Data structure.** Consider \(n\) individuals distributed across \(K\) centers, with center \(k\) holding \(n_k\) observations such that \(\sum_{k=1}^K n_k = n\). For individual \(i\) in center \(k\), let \(X_{ki} \in \mathbb{R}^d\) denote covariates, \(Y_{ki} \in \mathbb{R}\) the outcome, and \(W_{ki} \in \{0,1\}\) the treatment indicator. No individual-level data leaves its center.
 
+**Data generation.** Covariates are drawn from \(X_{ki} \sim \mathcal{N}(\mu_X, \Sigma_X)\) and treatment assignment follows \(W_{ki} \sim \mathrm{Bernoulli}(p_k)\), where the probability \(p_k\) may vary across centers. Potential outcomes are generated under a linear model,
+$$Y_{ki}^{(w)} = c_w + \beta_w^\top X_{ki} + \varepsilon_{ki}^{(w)}, \qquad \varepsilon_{ki}^{(w)} \stackrel{\mathrm{iid}}{\sim} \mathcal{N}(0,\,\sigma^2), \quad w \in \{0,1\},$$
+and the observed outcome is \(Y_{ki} = W_{ki}\,Y_{ki}^{(1)} + (1-W_{ki})\,Y_{ki}^{(0)}\). The true ATE under this model is
+$$\tau^\star = (c_1 - c_0) + (\beta_1 - \beta_0)^\top \mu_X.$$
+
 ```{r graphical-model, echo=FALSE, out.width="250px", fig.align="center", fig.cap="Causal relationships: center H influences treatment assignment W; both treatment W and covariates X affect outcome Y"}
 knitr::include_graphics("figure1_small.svg")
 ```
@@ -82,6 +87,12 @@ $$\tau_k = \frac{1}{n_k}\sum_{i=1}^{n_k} \left[(\tau_1 + \theta_1^\top X_{ki}) -
 The global estimate is the sample-size-weighted average:
 $$\tau = \sum_{k=1}^K \frac{n_k}{n}\, \tau_k.$$
 These weights \(n_k/n\) target the treatment effect on the pooled population \(\sum_{k=1}^K \alpha_k^\star P_k\), where \(P_k\) is the covariate distribution in center \(k\) and \(\alpha^\star_k = P(H=k)\) is the probability that a random observation comes from center \(k\) (Berenfeld, 2025).
+
+**Variance estimation.** We estimate the variance of \(\hat\tau\) via a delta-method decomposition with two terms:
+$$\hat{V}(\hat\tau) = \underbrace{\frac{\hat\sigma^2}{n\,\hat{p}(1-\hat{p})}}_{\text{OLS noise}} + \underbrace{\frac{\displaystyle\sum_k S_k^{sc} + \sum_k n_k(\hat\tau_k - \hat\tau)^2}{n(n-1)}}_{\text{covariate-mean uncertainty}},$$
+where \(\hat\sigma^2 = \sum_k\mathrm{RSS}_k\,/\,[n - 2(d+1)]\) is the pooled residual variance (pooling both arms), \(\hat{p} = n^{(1)}/n\) is the overall treatment proportion, \(\Delta\hat\theta = \hat\theta_1 - \hat\theta_0\), and
+$$S_k^{sc} = \sum_{i=1}^{n_k}\bigl(X_{ki}^\top\Delta\hat\theta - \bar{X}_k^\top\Delta\hat\theta\bigr)^2$$
+is the within-center sum of squared deviations of the projected index. The between-center scatter \(\sum_k n_k(\hat\tau_k-\hat\tau)^2\) requires no additional disclosure: because the intercept difference \(\hat\tau_1 - \hat\tau_0\) cancels, \(\bar{X}_k^\top\Delta\hat\theta - \bar{X}^\top\Delta\hat\theta = \hat\tau_k - \hat\tau\), so it is fully determined by the local ATEs already returned for the point estimate. An approximate 95% confidence interval is \(\hat\tau \pm 1.96\sqrt{\hat{V}(\hat\tau)}\).
 
 ```{r, eval=TRUE}
 library(dsRctFedClient)
@@ -222,6 +233,16 @@ federated_ate <- ds.EstimateAte(
 )
 ```
 
+The federated ATE, its standard error, and the 95% confidence interval are:
+
+```{r, eval = TRUE}
+cat("ATE:    ", round(federated_ate$ate,      4), "\n")
+cat("SE:     ", round(sqrt(federated_ate$variance), 4), "\n")
+cat("95% CI: [", round(federated_ate$ci_lower, 4), ",",
+                 round(federated_ate$ci_upper, 4), "]\n")
+cat("True ATE:", round(true_ATE, 4), "\n")
+```
+
 We now compute the pooled estimator, i.e., the one obtained by centralizing the data.
 
 ```{r, eval = TRUE}
@@ -252,7 +273,7 @@ pooled_ate <- as.numeric(tau_diff + sum(x_bar * gamma_diff))
 To finish, we show that the pooled estimator is equal to the federated one
 
 ```{r, eval = TRUE}
-print(abs(pooled_ate-federated_ate))
+print(abs(pooled_ate - federated_ate$ate))
 ```
 
 ## References
