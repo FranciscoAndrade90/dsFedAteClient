@@ -70,29 +70,31 @@ in a fully reproducible way.
 **Data structure.** Consider \(n\) individuals distributed across \(K\) centers, with center \(k\) holding \(n_k\) observations such that \(\sum_{k=1}^K n_k = n\). For individual \(i\) in center \(k\), let \(X_{ki} \in \mathbb{R}^d\) denote covariates, \(Y_{ki} \in \mathbb{R}\) the outcome, and \(W_{ki} \in \{0,1\}\) the treatment indicator. No individual-level data leaves its center.
 
 **Data generation.** Covariates are drawn from \(X_{ki} \sim \mathcal{N}(\mu_X, \Sigma_X)\) and treatment assignment follows \(W_{ki} \sim \mathrm{Bernoulli}(p_k)\), where the probability \(p_k\) may vary across centers. Potential outcomes are generated under a linear model,
-$$Y_{ki}^{(w)} = c_w + \beta_w^\top X_{ki} + \varepsilon_{ki}^{(w)}, \qquad \varepsilon_{ki}^{(w)} \stackrel{\mathrm{iid}}{\sim} \mathcal{N}(0,\,\sigma^2), \quad w \in \{0,1\},$$
+$$Y_{ki}^{(w)} = \alpha_w + \beta_w^\top X_{ki} + \varepsilon_{ki}^{(w)}, \qquad \varepsilon_{ki}^{(w)} \stackrel{\mathrm{iid}}{\sim} \mathcal{N}(0,\,\sigma^2), \quad w \in \{0,1\},$$
 and the observed outcome is \(Y_{ki} = W_{ki}\,Y_{ki}^{(1)} + (1-W_{ki})\,Y_{ki}^{(0)}\). The true ATE under this model is
-$$\tau^\star = (c_1 - c_0) + (\beta_1 - \beta_0)^\top \mu_X.$$
+$$\tau^\star = (\alpha_1 - \alpha_0) + (\beta_1 - \beta_0)^\top \mu_X.$$
 
 ```{r graphical-model, echo=FALSE, out.width="250px", fig.align="center", fig.cap="Causal relationships: center H influences treatment assignment W; both treatment W and covariates X affect outcome Y"}
 knitr::include_graphics("figure1_small.svg")
 ```
 
 **Federated model fitting.** For each treatment arm \(w \in \{0, 1\}\), we fit a linear outcome model federatively across all \(K\) centers using `dsBaseClient::ds.glm`:
-$$(\tau_w,\, \theta_w) = \underset{\tau,\, \theta}{\arg\min} \sum_{k=1}^K\sum_{i:\, W_{ki} = w} \left(Y_{ki} - \tau - \theta^\top X_{ki}\right)^2.$$
+$$(\hat\alpha_w,\, \hat\beta_w) = \underset{\alpha,\, \beta}{\arg\min} \sum_{k=1}^K\sum_{i:\, W_{ki} = w} \left(Y_{ki} - \alpha - \beta^\top X_{ki}\right)^2.$$
 The federated implementation aggregates sufficient statistics (cross-products of covariates and outcomes) across centers without sharing individual data. Because the outcome model is linear, this yields the exact pooled solution—no approximation is involved.
 
-**Global ATE estimation.** We estimate the average treatment effect via the plug-in G-formula. Each center \(k\) computes its local ATE using the shared model parameters \((\tau_0, \theta_0, \tau_1, \theta_1)\):
-$$\tau_k = \frac{1}{n_k}\sum_{i=1}^{n_k} \left[(\tau_1 + \theta_1^\top X_{ki}) - (\tau_0 + \theta_0^\top X_{ki})\right].$$
+**Global ATE estimation.** We estimate the average treatment effect via the plug-in G-formula. Each center \(k\) computes its local ATE using the shared model parameters \((\hat\alpha_0, \hat\beta_0, \hat\alpha_1, \hat\beta_1)\):
+$$\tau_k = \frac{1}{n_k}\sum_{i=1}^{n_k} \left[(\hat\alpha_1 + \hat\beta_1^\top X_{ki}) - (\hat\alpha_0 + \hat\beta_0^\top X_{ki})\right].$$
 The global estimate is the sample-size-weighted average:
 $$\tau = \sum_{k=1}^K \frac{n_k}{n}\, \tau_k.$$
 These weights \(n_k/n\) target the treatment effect on the pooled population \(\sum_{k=1}^K \alpha_k^\star P_k\), where \(P_k\) is the covariate distribution in center \(k\) and \(\alpha^\star_k = P(H=k)\) is the probability that a random observation comes from center \(k\) (Berenfeld, 2025).
 
-**Variance estimation.** We estimate the variance of \(\hat\tau\) via a delta-method decomposition with two terms:
-$$\hat{V}(\hat\tau) = \underbrace{\frac{\hat\sigma^2}{n\,\hat{p}(1-\hat{p})}}_{\text{OLS noise}} + \underbrace{\frac{\displaystyle\sum_k S_k^{sc} + \sum_k n_k(\hat\tau_k - \hat\tau)^2}{n(n-1)}}_{\text{covariate-mean uncertainty}},$$
-where \(\hat\sigma^2 = \sum_k\mathrm{RSS}_k\,/\,[n - 2(d+1)]\) is the pooled residual variance (pooling both arms), \(\hat{p} = n^{(1)}/n\) is the overall treatment proportion, \(\Delta\hat\theta = \hat\theta_1 - \hat\theta_0\), and
-$$S_k^{sc} = \sum_{i=1}^{n_k}\bigl(X_{ki}^\top\Delta\hat\theta - \bar{X}_k^\top\Delta\hat\theta\bigr)^2$$
-is the within-center sum of squared deviations of the projected index. The between-center scatter \(\sum_k n_k(\hat\tau_k-\hat\tau)^2\) requires no additional disclosure: because the intercept difference \(\hat\tau_1 - \hat\tau_0\) cancels, \(\bar{X}_k^\top\Delta\hat\theta - \bar{X}^\top\Delta\hat\theta = \hat\tau_k - \hat\tau\), so it is fully determined by the local ATEs already returned for the point estimate. An approximate 95% confidence interval is \(\hat\tau \pm 1.96\sqrt{\hat{V}(\hat\tau)}\).
+**Variance estimation.** The asymptotic variance of \(\hat\tau_{\mathrm{GD}}\) is derived in @khellaf2025 (Table 1). We estimate it by plugging in sample quantities:
+$$\hat{V}(\hat\tau) = \frac{\hat\sigma^2}{n\,\hat{p}(1-\hat{p})} + \frac{\Delta\hat\beta^\top\hat\Sigma\Delta\hat\beta}{n},$$
+where \(\hat{p} = n^{(1)}/n\) is the observed treatment proportion, \(\Delta\hat\beta = \hat\beta_1 - \hat\beta_0\), and \(\hat\Sigma\) is the pooled sample covariance of the covariates. The noise term uses
+$$\hat\sigma^2 = \frac{\sum_k \mathrm{RSS}_k}{n - 2(d+1)},$$
+where \(\mathrm{RSS}_k = \sum_{i=1}^{n_k}(Y_{ki} - \hat{Y}_{ki})^2\) is the residual sum of squares at server \(k\), computed under the federated arm-specific models with the global coefficients. An approximate 95% confidence interval is \(\hat\tau \pm 1.96\sqrt{\hat{V}(\hat\tau)}\).
+
+**Disclosure.** The federated computation involves two disclosure steps. In the first step, fitting the arm-specific models via `ds.glm` runs a federated IRLS in which each server transmits a \((d+1)\times(d+1)\) information matrix and a \((d+1)\)-vector per iteration; these encode covariate distributional information at the aggregated level. The client aggregates these across servers and returns only the \(2(d+1)\) arm-specific coefficients to calling code. In the second step, `localAteDS` returns per-server scalars: \((n_k,\, \hat\tau_k)\) for the point estimate, with \(\mathrm{RSS}_k\) and \(S_k^{sc}\) additionally required for variance estimation. No individual-level quantities are transmitted in either step. Setting `compute_variance = FALSE` restricts the second step to \((n_k,\, \hat\tau_k)\) only.
 
 ```{r, eval=TRUE}
 library(dsRctFedClient)
@@ -101,7 +103,7 @@ library(DSLite)
 library(MASS)
 ```
 
-### Paremeters 
+### Parameters
 
 The parameters  defined in Appendix C.1 of @khellaf2025 are 
 
@@ -116,8 +118,8 @@ p_treatment <- c(0.65, 0.65, 0.65, 0.35, 0.35) # probability of treatment assign
 
 # Outcome model parameters
 sigma_noise <- 1.0
-c_0 <- -2
-c_1 <- -1.85
+alpha_0 <- -2
+alpha_1 <- -1.85
 
 beta_1 <- seq(-1.75, 0.5, by = 0.25)
 beta_0 <- seq(-1.8, 0, by = 0.2)
@@ -131,7 +133,7 @@ Sigma_X <-  0.5 * I_d + 0.5 * J
 Note that, under this model, the true ATE is given by
 
 ```{r, eval=TRUE}
-true_ATE <- (c_1 - c_0) + sum(mu_X * (beta_1 - beta_0))
+true_ATE <- (alpha_1 - alpha_0) + sum(mu_X * (beta_1 - beta_0))
 print(true_ATE)
 ```
 
@@ -147,8 +149,8 @@ for (k in 1:K) {
   epsilon_0 <- rnorm(n_k, mean = 0, sd = sigma_noise)
   epsilon_1 <- rnorm(n_k, mean = 0, sd = sigma_noise)
 
-  Y_0 <- c_0 + X_k %*% beta_0 + epsilon_0 # potential outcome under control
-  Y_1 <- c_1 + X_k %*% beta_1 + epsilon_1 # potential outcome under treatment
+  Y_0 <- alpha_0 + X_k %*% beta_0 + epsilon_0 # potential outcome under control
+  Y_1 <- alpha_1 + X_k %*% beta_1 + epsilon_1 # potential outcome under treatment
   Y_obs <- W_k * Y_1 + (1 - W_k) * Y_0    # observed outcome
 
   # Create data frame for the current study
@@ -208,7 +210,7 @@ and login while assigning the name `base` to the server's data frame
 
 ```{r, eval = TRUE}
 conns <- DSI::datashield.login(logins = logindata, assign = FALSE)
-datashield.assign.table(
+DSI::datashield.assign.table(
   conns = conns,
   table = "study_data",
   symbol = "base"
@@ -233,14 +235,14 @@ federated_ate <- ds.EstimateAte(
 )
 ```
 
+The call produces a series of `glm.fit: algorithm did not converge` warnings. These are expected and harmless: internally, `ds.glm` runs a single-iteration GLM on each server to extract the design matrix before the federated IRLS begins, and R's `glm.fit` warns whenever `maxit = 1` is reached without convergence. The federated IRLS itself does converge, as confirmed by the convergence criterion reported in the output above.
+
 The federated ATE, its standard error, and the 95% confidence interval are:
 
 ```{r, eval = TRUE}
-cat("ATE:    ", round(federated_ate$ate,      4), "\n")
-cat("SE:     ", round(sqrt(federated_ate$variance), 4), "\n")
-cat("95% CI: [", round(federated_ate$ci_lower, 4), ",",
-                 round(federated_ate$ci_upper, 4), "]\n")
-cat("True ATE:", round(true_ATE, 4), "\n")
+cat(sprintf("ATE: %.4f  SE: %.4f  95%% CI: [%.4f, %.4f]  True ATE: %.4f\n",
+            federated_ate$ate, sqrt(federated_ate$variance),
+            federated_ate$ci_lower, federated_ate$ci_upper, true_ATE))
 ```
 
 We now compute the pooled estimator, i.e., the one obtained by centralizing the data.
@@ -273,7 +275,123 @@ pooled_ate <- as.numeric(tau_diff + sum(x_bar * gamma_diff))
 To finish, we show that the pooled estimator is equal to the federated one
 
 ```{r, eval = TRUE}
-print(abs(pooled_ate - federated_ate$ate))
+isTRUE(all.equal(pooled_ate, federated_ate$ate))
+```
+
+## Example 2 — The role of privacy settings
+
+This second example illustrates how DataSHIELD's disclosure controls interact with the federated estimation. We use the same model parameters and covariate distribution as Example 1, but with more extreme treatment probabilities: three centers assign treatment with probability 0.9 and two centers with probability 0.1.
+
+```{r, eval = TRUE}
+p_treatment_2 <- c(0.9, 0.9, 0.9, 0.1, 0.1)
+```
+
+With `n_per_study = 200` and `d = 10` covariates, the two centers with `p = 0.1` will have on average only 20 treated observations. DataSHIELD's `nfilter.glm` threshold requires each arm to have at least `(d + 1) / nfilter.glm = 11 / 0.33 ≈ 33` observations before fitting a GLM — so those centers will be blocked.
+
+### Data generation
+
+Only `p_treatment` changes; everything else is inherited from Example 1.
+
+```{r, eval = TRUE}
+data_list_2 <- vector("list", K)
+for (k in 1:K) {
+  X_k     <- mvrnorm(n = n_per_study, mu = mu_X, Sigma = Sigma_X)
+  W_k     <- rbinom(n = n_per_study, size = 1, prob = p_treatment_2[k])
+  Y_0     <- alpha_0 + X_k %*% beta_0 + rnorm(n_per_study, sd = sigma_noise)
+  Y_1     <- alpha_1 + X_k %*% beta_1 + rnorm(n_per_study, sd = sigma_noise)
+  Y_obs   <- W_k * Y_1 + (1 - W_k) * Y_0
+  data_list_2[[k]] <- data.frame(
+    subject_id = 1:n_per_study, W = W_k, Y = as.vector(Y_obs), X_k
+  )
+  colnames(data_list_2[[k]]) <- c("subject_id", "W", "Y", paste0("X", 1:d))
+}
+```
+
+### Default settings — estimation is blocked
+
+We set up the DSLite servers with the default `banana` privacy level and `nfilter.glm = 0.33`, then attempt the estimation.
+
+```{r, eval = TRUE}
+options(
+  datashield.privacyControlLevel = "banana",
+  nfilter.glm                    = 0.33
+)
+
+for (k in 1:K) {
+  server_name <- paste0("dslite.server2_", k)
+  server_obj  <- DSLite::newDSLiteServer(tables = list(study_data = data_list_2[[k]]))
+  server_obj$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  server_obj$aggregateMethod("localAteDS", "localAteDS")
+  assign(server_name, server_obj, envir = .GlobalEnv)
+}
+
+builder2 <- DSI::newDSLoginBuilder()
+for (k in 1:K) {
+  builder2$append(
+    server = paste0("study", k),
+    url    = paste0("dslite.server2_", k),
+    table  = "study_data",
+    driver = "DSLiteDriver"
+  )
+}
+conns_2 <- DSI::datashield.login(logins = builder2$build(), assign = FALSE)
+DSI::datashield.assign.table(conns = conns_2, table = "study_data", symbol = "base")
+```
+
+```{r, eval = TRUE, error = TRUE}
+ds.EstimateAte(
+  datasources     = conns_2,
+  base_name       = "base",
+  outcome_name    = outcome_name,
+  treatment_name  = treatment_name,
+  covariate_names = covariate_names
+)
+```
+
+As expected, the call fails: the centers with very few treated (or control) observations are blocked by the GLM saturation filter.
+
+### Permissive settings — estimation succeeds
+
+By switching to `permissive` mode and raising `nfilter.glm` to `1.0`, the constraint becomes: block only if the number of parameters exceeds the number of observations — a condition that is never met here. We rebuild the servers with these relaxed settings and rerun.
+
+```{r, eval = TRUE}
+options(
+  datashield.privacyControlLevel = "permissive",
+  nfilter.glm                    = 1.0
+)
+
+for (k in 1:K) {
+  server_name <- paste0("dslite.server2_", k)
+  server_obj  <- DSLite::newDSLiteServer(tables = list(study_data = data_list_2[[k]]))
+  server_obj$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  server_obj$aggregateMethod("localAteDS", "localAteDS")
+  assign(server_name, server_obj, envir = .GlobalEnv)
+}
+
+conns_2 <- DSI::datashield.login(logins = builder2$build(), assign = FALSE)
+DSI::datashield.assign.table(conns = conns_2, table = "study_data", symbol = "base")
+```
+
+```{r, results = 'hide', message = FALSE}
+federated_ate_2 <- ds.EstimateAte(
+  datasources     = conns_2,
+  base_name       = "base",
+  outcome_name    = outcome_name,
+  treatment_name  = treatment_name,
+  covariate_names = covariate_names
+)
+```
+
+```{r, eval = TRUE}
+cat(sprintf("ATE: %.4f  SE: %.4f  95%% CI: [%.4f, %.4f]  True ATE: %.4f\n",
+            federated_ate_2$ate, sqrt(federated_ate_2$variance),
+            federated_ate_2$ci_lower, federated_ate_2$ci_upper, true_ATE))
+```
+
+The estimation now succeeds. Note, however, that the standard error is larger than in Example 1: the extreme imbalance in treatment allocation reduces the effective sample size for both arms, inflating the variance of the ATE estimator.
+
+```{r, eval = TRUE}
+DSI::datashield.logout(conns_2)
 ```
 
 ## References

@@ -9,7 +9,8 @@ ds.EstimateAte(
   base_name,
   outcome_name,
   treatment_name,
-  covariate_names
+  covariate_names,
+  compute_variance = TRUE
 )
 }
 \arguments{
@@ -25,9 +26,16 @@ If \code{NULL}, uses \code{\link[DSI]{datashield.connections_find}}.}
 indicator.}
 
 \item{covariate_names}{A character vector of covariate names.}
+
+\item{compute_variance}{Logical. If \code{TRUE} (default), each server also
+returns the residual sum of squares and projected scatter scalar needed for
+the delta-method variance and 95\\% confidence interval.  Set to
+\code{FALSE} to request only the point estimate, minimizing the
+information disclosed by each server.}
 }
 \value{
-A named list with seven elements:
+When \code{compute_variance = TRUE}, a named list with seven
+elements:
 \describe{
 \item{ate}{Federated ATE estimate \eqn{\hat\tau}.}
 \item{variance}{Delta-method variance estimate \eqn{\hat V(\hat\tau)}.}
@@ -37,19 +45,27 @@ A named list with seven elements:
 \item{n_k}{Named integer vector of per-server sample sizes.}
 \item{ate_k}{Named numeric vector of per-server local ATE estimates.}
 }
+When \code{compute_variance = FALSE}, a named list with four elements:
+\code{ate}, \code{n_total}, \code{n_k}, \code{ate_k}.
 }
 \description{
 Client-side function that orchestrates the federated computation of an
-average treatment effect (ATE) and its variance for data collected in a
-randomised controlled trial (RCT) setting using DataSHIELD.
+average treatment effect (ATE) and, optionally, its delta-method variance
+and confidence interval, for data collected in a randomised controlled trial
+(RCT) setting using DataSHIELD.
 }
 \details{
 The function fits separate arm-specific linear models via
 \code{\link[dsBaseClient]{ds.glm}}, broadcasts the pooled coefficients back
-to the servers, and collects the quantities needed for the delta-method
-variance in a single additional aggregate call (\code{localAteDS}).
+to the servers, and collects local statistics in a single additional
+aggregate call (\code{localAteDS}).  Setting \code{compute_variance = FALSE}
+limits the information returned by each server to the three scalars strictly
+needed for the point estimate (\eqn{n_k}, \eqn{n_k^{(1)}},
+\eqn{\hat\tau_k}), omitting the residual sum of squares and projected scatter
+that are required for the variance but constitute additional disclosure.
 
-The variance estimator has two components:
+When \code{compute_variance = TRUE} (the default), the variance estimator
+has two components:
 \enumerate{
 \item OLS noise: \eqn{\hat\sigma^2 / (n\,\hat p(1-\hat p))}, where
 \eqn{\hat\sigma^2} uses the pooled df \eqn{n - 2(d+1)}.
@@ -61,12 +77,22 @@ per-server scatter scalars.
 \examples{
 \dontrun{
 conns <- DSI::datashield.login(logins = logindata, assign = TRUE)
+# Full result with variance and CI
 result <- ds.EstimateAte(
   datasources     = conns,
   base_name       = "study_data",
   outcome_name    = "Y",
   treatment_name  = "W",
   covariate_names = c("X1", "X2")
+)
+# Point estimate only (less disclosure)
+result_ate <- ds.EstimateAte(
+  datasources      = conns,
+  base_name        = "study_data",
+  outcome_name     = "Y",
+  treatment_name   = "W",
+  covariate_names  = c("X1", "X2"),
+  compute_variance = FALSE
 )
 DSI::datashield.logout(conns)
 }

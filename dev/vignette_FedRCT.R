@@ -14,8 +14,8 @@ n_per_study <- 20 * d
 p_treatment <- c(0.9, 0.9, 0.9, 0.1, 0.1)
 
 sigma_noise <- 1.0
-c_0 <- -2
-c_1 <- -1.85
+alpha_0 <- -2
+alpha_1 <- -1.85
 
 beta_1 <- seq(-1.75, 0.5, by = 0.25)
 beta_0 <- seq(-1.8, 0, by = 0.2)
@@ -25,7 +25,7 @@ I_d     <- diag(d)
 J       <- matrix(1, nrow = d, ncol = d)
 Sigma_X <- 0.5 * I_d + 0.5 * J
 
-true_ATE <- (c_1 - c_0) + sum(mu_X * (beta_1 - beta_0))
+true_ATE <- (alpha_1 - alpha_0) + sum(mu_X * (beta_1 - beta_0))
 print(true_ATE)
 
 # Data generation -------------------------------------------------------------
@@ -40,8 +40,8 @@ for (k in 1:K) {
   epsilon_0 <- rnorm(n_k, mean = 0, sd = sigma_noise)
   epsilon_1 <- rnorm(n_k, mean = 0, sd = sigma_noise)
 
-  Y_0 <- c_0 + X_k %*% beta_0 + epsilon_0
-  Y_1 <- c_1 + X_k %*% beta_1 + epsilon_1
+  Y_0 <- alpha_0 + X_k %*% beta_0 + epsilon_0
+  Y_1 <- alpha_1 + X_k %*% beta_1 + epsilon_1
   Y_obs <- W_k * Y_1 + (1 - W_k) * Y_0
 
   data_list[[k]] <- data.frame(
@@ -56,6 +56,20 @@ for (k in 1:K) {
 pooled_data <- do.call(rbind, data_list)
 
 # DSLite servers (one per study) ----------------------------------------------
+
+options(
+  datashield.privacyControlLevel = "permissive",
+  nfilter.tab                    = 3,
+  nfilter.subset                 = 3,
+  nfilter.glm                    = 1.0,
+  nfilter.string                 = 80,
+  nfilter.stringShort            = 20,
+  nfilter.kNN                    = 3,
+  nfilter.levels.density         = 0.33,
+  nfilter.levels.max             = 40,
+  nfilter.noise                  = 0.25,
+  nfilter.privacy.old            = 5
+)
 
 for (k in 1:K) {
   server_name <- paste0("dslite.server", k)
@@ -77,7 +91,7 @@ for (k in 1:K) {
 logindata <- builder$build()
 
 conns <- DSI::datashield.login(logins = logindata, assign = FALSE)
-datashield.assign.table(conns = conns, table = "study_data", symbol = "base")
+DSI::datashield.assign.table(conns = conns, table = "study_data", symbol = "base")
 
 # Federated ATE estimation ----------------------------------------------------
 
@@ -120,8 +134,9 @@ x_bar    <- colMeans(X_mat, na.rm = TRUE)
 pooled_ate <- as.numeric(tau_diff + sum(x_bar * gamma_diff))
 
 cat("Federated ATE:  ", federated_ate$ate, "\n")
+cat("Pooled ATE:     ", pooled_ate, "\n")
 cat("95% CI:         [", federated_ate$ci_lower, ",", federated_ate$ci_upper, "]\n")
 cat("Variance:       ", federated_ate$variance, "\n")
-print(abs(pooled_ate - federated_ate$ate))
+cat("Equal:          ", isTRUE(all.equal(pooled_ate, federated_ate$ate)), "\n")
 
 DSI::datashield.logout(conns)
