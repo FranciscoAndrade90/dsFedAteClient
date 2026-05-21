@@ -23,6 +23,16 @@
 * `.check_sample_sizes()` warns when either federated arm size falls below
   5*(d+1), signalling that the asymptotic approximation may be unreliable.
 
+## Documentation
+
+* Vignette revised: notation unified throughout (`alpha_w` / `beta_w` for
+  true parameters, `alpha_hat_w` / `beta_hat_w` for estimates, matching the
+  code); variance section rewritten with pointer to Khellaf et al. Table 1,
+  plug-in formula, and RSS_k definition; Disclosure paragraph added explaining
+  the two-step information flow (IRLS matrices + per-server scalars).
+* Example 2 added to vignette illustrating how extreme treatment probabilities
+  trigger `nfilter.glm` and how permissive mode enables estimation.
+
 ## Bug fixes
 
 * `dev/SettingC_1.R`: corrected argument name from `connections` to
