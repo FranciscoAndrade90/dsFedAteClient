@@ -69,9 +69,17 @@ in a fully reproducible way.
 
 **Data structure.** Consider \(n\) individuals distributed across \(K\) centers, with center \(k\) holding \(n_k\) observations such that \(\sum_{k=1}^K n_k = n\). For individual \(i\) in center \(k\), let \(X_{ki} \in \mathbb{R}^d\) denote covariates, \(Y_{ki} \in \mathbb{R}\) the outcome, and \(W_{ki} \in \{0,1\}\) the treatment indicator. No individual-level data leaves its center.
 
-**Data generation.** Covariates are drawn from \(X_{ki} \sim \mathcal{N}(\mu_X, \Sigma_X)\) and treatment assignment follows \(W_{ki} \sim \mathrm{Bernoulli}(p_k)\), where the probability \(p_k\) may vary across centers. Potential outcomes are generated under a linear model,
-$$Y_{ki}^{(w)} = \alpha_w + \beta_w^\top X_{ki} + \varepsilon_{ki}^{(w)}, \qquad \varepsilon_{ki}^{(w)} \stackrel{\mathrm{iid}}{\sim} \mathcal{N}(0,\,\sigma^2), \quad w \in \{0,1\},$$
-and the observed outcome is \(Y_{ki} = W_{ki}\,Y_{ki}^{(1)} + (1-W_{ki})\,Y_{ki}^{(0)}\). The true ATE under this model is
+**Data generation.** We adopt a causal model based on the potential outcomes framework [@rubin1974; @imbens_rubin_2015]. For each individual $i$ in center $k$, we posit two potential outcomes: $Y_{ki}^{(0)}$, the outcome that *would* be observed under control, and $Y_{ki}^{(1)}$, the outcome that *would* be observed under treatment. Only one of these is ever realised. We invoke the **Stable Unit Treatment Value Assumption (SUTVA)**: (i) each individual's potential outcomes are unaffected by others' treatment assignments (no interference), and (ii) there is a single, well-defined version of each treatment level.
+
+Covariates are drawn from $X_{ki} \sim \mathcal{N}(\mu_X, \Sigma_X)$ and treatment is assigned as $W_{ki} \sim \mathrm{Bernoulli}(p_k)$, independently of $X_{ki}$ and of the potential outcomes — mimicking a randomised controlled trial (RCT). This renders the **ignorability** condition
+$$W_{ki} \perp\!\!\!\perp \bigl(Y_{ki}^{(0)},\, Y_{ki}^{(1)}\bigr),$$
+which, together with **positivity** ($0 < p_k < 1$ for all $k$), ensures that the ATE is nonparametrically identified. The observed outcome follows by the **consistency** equation $Y_{ki} = W_{ki}\,Y_{ki}^{(1)} + (1-W_{ki})\,Y_{ki}^{(0)}$.
+
+Potential outcomes are generated under a linear model,
+$$Y_{ki}^{(w)} = \alpha_w + \beta_w^\top X_{ki} + \varepsilon_{ki}^{(w)}, \qquad \varepsilon_{ki}^{(w)} \stackrel{\mathrm{iid}}{\sim} \mathcal{N}(0,\,\sigma^2), \quad w \in \{0,1\}.$$
+The causal estimand of interest is the **Average Treatment Effect (ATE)**,
+$$\tau^\star = \mathbb{E}\!\left[Y^{(1)} - Y^{(0)}\right],$$
+which under the linear model above evaluates to
 $$\tau^\star = (\alpha_1 - \alpha_0) + (\beta_1 - \beta_0)^\top \mu_X.$$
 
 ```{r graphical-model, echo=FALSE, out.width="250px", fig.align="center", fig.cap="Causal relationships: center H influences treatment assignment W; both treatment W and covariates X affect outcome Y"}
@@ -80,7 +88,7 @@ knitr::include_graphics("figure1_small.svg")
 
 **Federated model fitting.** For each treatment arm \(w \in \{0, 1\}\), we fit a linear outcome model federatively across all \(K\) centers using `dsBaseClient::ds.glm`:
 $$(\hat\alpha_w,\, \hat\beta_w) = \underset{\alpha,\, \beta}{\arg\min} \sum_{k=1}^K\sum_{i:\, W_{ki} = w} \left(Y_{ki} - \alpha - \beta^\top X_{ki}\right)^2.$$
-The federated implementation aggregates sufficient statistics (cross-products of covariates and outcomes) across centers without sharing individual data. Because the outcome model is linear, this yields the exact pooled solution—no approximation is involved.
+The federated implementation aggregates sufficient statistics (cross-products of covariates and outcomes) across centers without sharing individual data. Because the outcome model is linear, this yields the exact pooled solution—no approximation is involved. Although randomization alone suffices to identify the ATE, adjusting for covariates $X$ — here, by regressing the outcome on $X$ separately within each arm — yields an estimator with strictly smaller asymptotic variance than the unadjusted difference-in-means, as long as the covariates are predictive of the outcome [@wager2024, Chapter 1].
 
 **Global ATE estimation.** We estimate the average treatment effect via the plug-in G-formula. Each center \(k\) computes its local ATE using the shared model parameters \((\hat\alpha_0, \hat\beta_0, \hat\alpha_1, \hat\beta_1)\):
 $$\tau_k = \frac{1}{n_k}\sum_{i=1}^{n_k} \left[(\hat\alpha_1 + \hat\beta_1^\top X_{ki}) - (\hat\alpha_0 + \hat\beta_0^\top X_{ki})\right].$$
@@ -94,7 +102,7 @@ where \(\hat{p} = n^{(1)}/n\) is the observed treatment proportion, \(\Delta\hat
 $$\hat\sigma^2 = \frac{\sum_k \mathrm{RSS}_k}{n - 2(d+1)},$$
 where \(\mathrm{RSS}_k = \sum_{i=1}^{n_k}(Y_{ki} - \hat{Y}_{ki})^2\) is the residual sum of squares at server \(k\), computed under the federated arm-specific models with the global coefficients. An approximate 95% confidence interval is \(\hat\tau \pm 1.96\sqrt{\hat{V}(\hat\tau)}\).
 
-**Disclosure.** The federated computation involves two disclosure steps. In the first step, fitting the arm-specific models via `ds.glm` runs a federated IRLS in which each server transmits a \((d+1)\times(d+1)\) information matrix and a \((d+1)\)-vector per iteration; these encode covariate distributional information at the aggregated level. The client aggregates these across servers and returns only the \(2(d+1)\) arm-specific coefficients to calling code. In the second step, `localAteDS` returns per-server scalars: \((n_k,\, \hat\tau_k)\) for the point estimate, with \(\mathrm{RSS}_k\) and \(S_k^{sc}\) additionally required for variance estimation. No individual-level quantities are transmitted in either step. Setting `compute_variance = FALSE` restricts the second step to \((n_k,\, \hat\tau_k)\) only.
+**Shared information.** The federated computation involves two disclosure steps. In the first step, fitting the arm-specific models via `ds.glm` runs a federated IRLS in which each server transmits a \((d+1)\times(d+1)\) information matrix and a \((d+1)\)-vector per iteration; these encode covariate distributional information at the aggregated level. The client aggregates these across servers and returns only the \(2(d+1)\) arm-specific coefficients to calling code. Because the outcome model is linear (Gaussian family), IRLS converges in a single iteration, so each arm requires exactly two communication rounds: one setup call and one IRLS step. In the second step, `localAteDS` returns per-server scalars: \((n_k,\, \hat\tau_k)\) for the point estimate, with \(\mathrm{RSS}_k\) and \(S_k^{sc}\) additionally required for variance estimation. No individual-level quantities are transmitted in either step. Setting `compute_variance = FALSE` restricts the second step to \((n_k,\, \hat\tau_k)\) only.
 
 ```{r, eval=TRUE}
 library(dsRctFedClient)
@@ -234,8 +242,6 @@ federated_ate <- ds.EstimateAte(
   covariate_names = covariate_names
 )
 ```
-
-The call produces a series of `glm.fit: algorithm did not converge` warnings. These are expected and harmless: internally, `ds.glm` runs a single-iteration GLM on each server to extract the design matrix before the federated IRLS begins, and R's `glm.fit` warns whenever `maxit = 1` is reached without convergence. The federated IRLS itself does converge, as confirmed by the convergence criterion reported in the output above.
 
 The federated ATE, its standard error, and the 95% confidence interval are:
 

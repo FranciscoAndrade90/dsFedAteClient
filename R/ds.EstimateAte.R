@@ -112,19 +112,19 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 
   # Federated arm-specific OLS --------------------------------------------------
 
-  model_treated <- dsBaseClient::ds.glm(
+  model_treated <- suppressWarnings(dsBaseClient::ds.glm(
     formula     = formula,
     data        = treated_name,
     family      = "gaussian",
     datasources = datasources
-  )
+  ))
 
-  model_control <- dsBaseClient::ds.glm(
+  model_control <- suppressWarnings(dsBaseClient::ds.glm(
     formula     = formula,
     data        = control_name,
     family      = "gaussian",
     datasources = datasources
-  )
+  ))
 
   .check_glm_validity(model_treated, model_control, covariate_names)
 
