@@ -269,3 +269,117 @@ test_that(".check_string rejects NULL input", {
 test_that(".check_string rejects numeric input", {
   expect_error(.check_string(42, "my_arg"), "my_arg")
 })
+
+# study_effects ----------------------------------------------------------------
+
+conns_se <- setupDSLiteStudyEffects()
+TRUE_ATE  <- 0.5   # c(1) - c(0) with beta(1) == beta(0)
+
+test_that("ds.EstimateAte study_effects=TRUE returns seven-element list", {
+  result <- ds.EstimateAte(
+    datasources     = conns_se,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    study_effects   = TRUE
+  )
+  expect_named(result, c("ate", "variance", "ci_lower", "ci_upper",
+                         "n_total", "n_k", "ate_k"))
+})
+
+test_that("ds.EstimateAte study_effects=TRUE ATE is close to the true value", {
+  result <- ds.EstimateAte(
+    datasources     = conns_se,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    study_effects   = TRUE
+  )
+  expect_equal(result$ate, TRUE_ATE, tolerance = 0.25)
+})
+
+test_that("ds.EstimateAte study_effects=TRUE CI covers the true ATE", {
+  result <- ds.EstimateAte(
+    datasources     = conns_se,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    study_effects   = TRUE
+  )
+  expect_lt(result$ci_lower, TRUE_ATE)
+  expect_gt(result$ci_upper, TRUE_ATE)
+})
+
+test_that("ds.EstimateAte study_effects=FALSE is substantially biased", {
+  # With h = c(3, 0, -3) and p = c(0.8, 0.5, 0.2) the expected bias is ~2.4
+  result <- ds.EstimateAte(
+    datasources     = conns_se,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    study_effects   = FALSE
+  )
+  expect_gt(abs(result$ate - TRUE_ATE), 1.0)
+})
+
+test_that("ds.EstimateAte study_effects=TRUE variance is positive and finite", {
+  result <- ds.EstimateAte(
+    datasources     = conns_se,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    study_effects   = TRUE
+  )
+  expect_gt(result$variance, 0)
+  expect_false(is.na(result$variance))
+  expect_false(is.infinite(result$variance))
+})
+
+test_that("ds.EstimateAte study_effects=TRUE with compute_variance=FALSE returns four elements", {
+  result <- ds.EstimateAte(
+    datasources      = conns_se,
+    base_name        = "study_data",
+    outcome_name     = "Y",
+    treatment_name   = "W",
+    covariate_names  = c("X1", "X2"),
+    study_effects    = TRUE,
+    compute_variance = FALSE
+  )
+  expect_named(result, c("ate", "n_total", "n_k", "ate_k"))
+})
+
+test_that("ds.EstimateAte study_effects=TRUE with K=1 warns and falls back", {
+  expect_warning(
+    result <- ds.EstimateAte(
+      datasources     = conns,      # single-server fixture from setupDSLite()
+      base_name       = "study_data",
+      outcome_name    = "Y",
+      treatment_name  = "W",
+      covariate_names = c("X1", "X2"),
+      study_effects   = TRUE
+    ),
+    "no effect"
+  )
+  # Falls back to unadjusted — should still return a valid result
+  expect_named(result, c("ate", "variance", "ci_lower", "ci_upper",
+                         "n_total", "n_k", "ate_k"))
+})
+
+# .add_study_id ----------------------------------------------------------------
+
+test_that(".add_study_id creates a new object with study_id2 and study_id3, leaving original unchanged", {
+  .add_study_id(conns_se, "study_data", length(conns_se), "study_data_adj_test")
+  adj_cols  <- dsBaseClient::ds.colnames("study_data_adj_test", datasources = conns_se)
+  orig_cols <- dsBaseClient::ds.colnames("study_data",          datasources = conns_se)
+  for (srv in names(adj_cols)) {
+    expect_true("study_id2"  %in% adj_cols[[srv]])
+    expect_true("study_id3"  %in% adj_cols[[srv]])
+    expect_false("study_id"  %in% adj_cols[[srv]])    # no factor column
+    expect_false("study_id2" %in% orig_cols[[srv]])   # original untouched
+  }
+})

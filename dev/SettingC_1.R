@@ -5,8 +5,8 @@ library(dsBaseClient)
 library(MASS)
 library(devtools)
 
-devtools::load_all("/Users/fdelimaa/Desktop/INRIA/FedCausal/dsRctFedClient")
-devtools::load_all("/Users/fdelimaa/Desktop/INRIA/FedCausal/dsRctFed")
+devtools::load_all(".")
+devtools::load_all("../dsRctFed")
 
 # ============================================================================
 # STEP 2: Generate Data for Setting C.1
@@ -301,8 +301,8 @@ for (k in 1:K) {
   dslite_setup[[server_name]] <- get(server_name)
 }
 
-saveRDS(dslite_setup, "/Users/fdelimaa/Desktop/INRIA/FedCausal/Claude_files/dslite_5servers_c1.rds")
-cat("DSLite setup saved to: /Users/fdelimaa/Desktop/INRIA/FedCausal/Claude_files/dslite_5servers_c1.rds\n\n")
+saveRDS(dslite_setup, "dev/dslite_5servers_c1.rds")
+cat("DSLite setup saved to: dev/dslite_5servers_c1.rds\n\n")
 
 # ============================================================================
 # USAGE INFORMATION

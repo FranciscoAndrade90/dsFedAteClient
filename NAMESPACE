@@ -2,6 +2,7 @@
 
 export(ds.EstimateAte)
 importFrom(DSI,datashield.aggregate)
+importFrom(DSI,datashield.assign)
 importFrom(DSI,datashield.connections_find)
 importFrom(cli,cli_abort)
 importFrom(cli,cli_warn)

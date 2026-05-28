@@ -1,7 +1,7 @@
 #' Estimate average treatment effect in federated RCT data
 #'
 #' Client-side function that orchestrates the federated computation of an
-#' average treatment effect (ATE) and, optionally, its delta-method variance
+#' average treatment effect (ATE) and, optionally, its variance
 #' and confidence interval, for data collected in a randomised controlled trial
 #' (RCT) setting using DataSHIELD.
 #'
@@ -13,6 +13,16 @@
 #' needed for the point estimate (\eqn{n_k}, \eqn{n_k^{(1)}},
 #' \eqn{\hat\tau_k}), omitting the residual sum of squares and projected scatter
 #' that are required for the variance but constitute additional disclosure.
+#'
+#' \strong{Server-side objects created.}  The function always creates two
+#' symbols on every server: \code{<base_name>_treated} and
+#' \code{<base_name>_control} (the arm-specific subsets used by
+#' \code{ds.glm}).  When \code{study_effects = TRUE}, a third symbol
+#' \code{<base_name>_study_adj} is also created, holding the original data
+#' frame augmented with the K-1 integer study dummy columns.  All three
+#' symbols persist in the server workspace after the function returns,
+#' consistent with standard DataSHIELD practice.  The caller's original
+#' \code{base_name} object is never modified.
 #'
 #' When \code{compute_variance = TRUE} (the default), the variance estimator
 #' has two components:
@@ -37,6 +47,16 @@
 #'   the delta-method variance and 95\% confidence interval.  Set to
 #'   \code{FALSE} to request only the point estimate, minimizing the
 #'   information disclosed by each server.
+#' @param study_effects Logical. If \code{FALSE} (default), the homogeneous
+#'   model is assumed (Definition 8 of Khellaf et al., 2025).  If \code{TRUE},
+#'   the adjusted GD estimator (Definition 9 of Khellaf et al., 2025) is used:
+#'   \code{addStudyIdDS()} appends K-1 integer dummy columns
+#'   (\code{study_id2}, \ldots, \code{study_idK}) to each server's data frame,
+#'   and the federated GLMs are fitted on the augmented design matrix.  The
+#'   asymptotic variance is identical to the unadjusted case (Appendix B.4.2
+#'   of Khellaf et al., 2025); the degrees of freedom adjust from
+#'   \eqn{n - 2(d+1)} to \eqn{n - 2(d+K)} automatically.  Has no effect and
+#'   emits a warning when only one datasource is present.
 #'
 #' @return When \code{compute_variance = TRUE}, a named list with seven
 #'   elements:
@@ -51,6 +71,12 @@
 #'   }
 #'   When \code{compute_variance = FALSE}, a named list with four elements:
 #'   \code{ate}, \code{n_total}, \code{n_k}, \code{ate_k}.
+#'   The structure is the same regardless of \code{study_effects}.
+#' @references
+#' Khellaf, R., Bellet, A., and Josse, J. (2025).
+#' Federated Causal Inference: Multi-Study ATE Estimation beyond Meta-Analysis.
+#' \emph{Proceedings of the 28th International Conference on Artificial
+#' Intelligence and Statistics (AISTATS 2025)}.
 #' @importFrom DSI datashield.connections_find
 #' @examples
 #' \dontrun{
@@ -77,13 +103,34 @@
 #' @export
 ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
                            treatment_name, covariate_names,
-                           compute_variance = TRUE) {
+                           compute_variance = TRUE,
+                           study_effects = FALSE) {
   if (is.null(datasources)) {
     datasources <- DSI::datashield.connections_find()
   }
 
   .check_datasources(datasources)
   .check_args(base_name, outcome_name, treatment_name, covariate_names)
+
+  # Study-effects setup ---------------------------------------------------------
+
+  K <- length(datasources)
+
+  if (study_effects && K == 1L) {
+    cli::cli_warn("`study_effects = TRUE` has no effect with a single datasource.")
+    study_effects <- FALSE
+  }
+
+  if (study_effects) {
+    # Integer dummy columns (not a factor) are used so that ds.glm() does not
+    # trigger R's factor-contrast machinery: model.frame() drops empty factor
+    # levels to a 1-level factor on each server, causing "contrasts can be
+    # applied only to factors with >= 2 levels".
+    base_name_adj   <- paste0(base_name, "_study_adj")
+    .add_study_id(datasources, base_name, K, base_name_adj)
+    base_name       <- base_name_adj
+    covariate_names <- c(covariate_names, paste0("study_id", seq(2L, K)))
+  }
 
   # Subset into arm-specific server-side objects --------------------------------
 
@@ -162,12 +209,12 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 
   # Aggregation -----------------------------------------------------------------
 
-  n          <- sum(n_k)
-  n_1        <- sum(n_k_1)
-  sw_weights <- n_k / n
-  ate_hat    <- sum(sw_weights * tau_k)
+  n       <- sum(n_k)
+  n_1     <- sum(n_k_1)
+  ate_hat <- sum(n_k * tau_k) / n
 
-  .check_sample_sizes(n_k - n_k_1, n_k_1, length(covariate_names))
+  d <- length(covariate_names)  # with dummies when study_effects = TRUE
+  .check_sample_sizes(n_k - n_k_1, n_k_1, d)
 
   if (!compute_variance) {
     return(list(
@@ -186,7 +233,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     n_k        = n_k,
     tau_k      = tau_k,
     ate_hat    = ate_hat,
-    d          = length(covariate_names)
+    d          = d
   )
 
   se       <- sqrt(variance)
@@ -209,50 +256,42 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 
 #' @keywords internal
 #' @noRd
+#' @importFrom DSI datashield.assign
+.add_study_id <- function(datasources, base_name, K, newobj) {
+  for (k in seq_along(datasources)) {
+    cally <- call("addStudyIdDS", base_name, as.character(k), as.character(K))
+    DSI::datashield.assign(datasources[k], newobj, cally)
+  }
+  invisible(NULL)
+}
+
+#' @keywords internal
+#' @noRd
 #' @importFrom DSI datashield.aggregate
 .localAte <- function(datasources, base_name, outcome_name, covariate_names,
                       treatment_name, alpha0, beta0, alpha1, beta1,
                       compute_variance = TRUE) {
-  K <- length(datasources)
-
-  n_k   <- integer(K)
-  n_k_1 <- integer(K)
-  tau_k <- numeric(K)
-
-  covariate_names_str <- paste(covariate_names, collapse = ",")
-  alpha0_str          <- as.character(alpha0)
-  alpha1_str          <- as.character(alpha1)
-  beta0_str           <- paste(as.character(beta0), collapse = ",")
-  beta1_str           <- paste(as.character(beta1), collapse = ",")
-
   cally <- call(
     "localAteDS",
-    base_name, outcome_name, covariate_names_str, treatment_name,
-    alpha0_str, beta0_str, alpha1_str, beta1_str,
+    base_name, outcome_name,
+    paste(covariate_names, collapse = ","),
+    treatment_name,
+    as.character(alpha0),
+    paste(as.character(beta0), collapse = ","),
+    as.character(alpha1),
+    paste(as.character(beta1), collapse = ","),
     compute_variance
   )
   results <- DSI::datashield.aggregate(conns = datasources, expr = cally)
 
+  out <- list(
+    n_k   = vapply(results, `[[`, 1L,  "n_k"),
+    n_k_1 = vapply(results, `[[`, 1L,  "n_k_1"),
+    tau_k = vapply(results, `[[`, 1.0, "tau_k")
+  )
   if (compute_variance) {
-    s_k_scalar <- numeric(K)
-    rss_k      <- numeric(K)
-  }
-
-  for (k in seq_len(K)) {
-    res       <- results[[k]]
-    n_k[k]   <- res$n_k
-    n_k_1[k] <- res$n_k_1
-    tau_k[k] <- res$tau_k
-    if (compute_variance) {
-      s_k_scalar[k] <- res$s_k_scalar
-      rss_k[k]      <- res$rss_k
-    }
-  }
-
-  out <- list(n_k = n_k, n_k_1 = n_k_1, tau_k = tau_k)
-  if (compute_variance) {
-    out$s_k_scalar <- s_k_scalar
-    out$rss_k      <- rss_k
+    out$s_k_scalar <- vapply(results, `[[`, 1.0, "s_k_scalar")
+    out$rss_k      <- vapply(results, `[[`, 1.0, "rss_k")
   }
   out
 }

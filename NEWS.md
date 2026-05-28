@@ -9,6 +9,25 @@
 
 ## New features
 
+* `ds.EstimateAte()` gains a `study_effects` argument (default `FALSE`)
+  implementing the adjusted GD estimator (Definition 9 of Khellaf, Bellet &
+  Josse 2025) for multi-site settings with confounded study effects:
+  - When `TRUE` and K > 1, a call to the new `addStudyIdDS()` assign function
+    creates a new server-side object `<base_name>_study_adj` containing the
+    original data frame augmented with K-1 integer study-dummy columns. The
+    caller's original object is never modified. The federated GLMs are then
+    fitted on the augmented frame with the study dummies in the formula, removing
+    confounding between heterogeneous treatment probabilities and study baseline
+    shifts without requiring a separate communication round.
+  - The degrees of freedom in the variance estimator adjust automatically
+    from n - 2(d+1) to n - 2(d+K) because `covariate_names` is extended with
+    the K-1 study dummies before being passed to the rest of the pipeline.
+  - When `study_effects = TRUE` but K = 1, a warning is emitted and the
+    unadjusted estimator is used as a fallback.
+  - Simulation shows that with h = c(3, 0, -3) and p = c(0.8, 0.5, 0.2), the
+    unadjusted ATE is biased by ≈ 2.3 while the adjusted estimator has bias
+    < 0.1 and its 95% CI covers the true ATE of 0.5.
+
 * `ds.EstimateAte()` now computes and returns the full delta-method variance
   of the GD estimator. Two components are estimated:
   - OLS noise: sigma-hat-squared / (n * p-hat * (1 - p-hat)), using pooled

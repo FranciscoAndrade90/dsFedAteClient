@@ -10,7 +10,7 @@ Authors@R:
     person(given = "Julie",
            family = "Josse",
            role = "aut"))
-Description: Based on “Federated Causal Inference: Multi-Studies ATE Estimation Beyond Meta-Analysis” (R. Khellaf, A. Bellet, and J. Josse, 2025), this package implements a DATASHIELD client side package that orchestrates the federated computation of the average treatment effect using data collected in a randomized controlled trial (RCT) setting.
+Description: Based on “Federated Causal Inference: Multi-Study ATE Estimation beyond Meta-Analysis” (R. Khellaf, A. Bellet, and J. Josse, 2025), this package implements a DATASHIELD client side package that orchestrates the federated computation of the average treatment effect using data collected in a randomized controlled trial (RCT) setting.
 License: AGPL (>= 3)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)

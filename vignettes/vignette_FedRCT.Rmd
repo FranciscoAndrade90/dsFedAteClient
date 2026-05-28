@@ -94,7 +94,7 @@ The federated implementation aggregates sufficient statistics (cross-products of
 $$\tau_k = \frac{1}{n_k}\sum_{i=1}^{n_k} \left[(\hat\alpha_1 + \hat\beta_1^\top X_{ki}) - (\hat\alpha_0 + \hat\beta_0^\top X_{ki})\right].$$
 The global estimate is the sample-size-weighted average:
 $$\tau = \sum_{k=1}^K \frac{n_k}{n}\, \tau_k.$$
-These weights \(n_k/n\) target the treatment effect on the pooled population \(\sum_{k=1}^K \alpha_k^\star P_k\), where \(P_k\) is the covariate distribution in center \(k\) and \(\alpha^\star_k = P(H=k)\) is the probability that a random observation comes from center \(k\) (Berenfeld, 2025).
+These weights \(n_k/n\) target the treatment effect on the pooled population \(\sum_{k=1}^K \alpha_k^\star P_k\), where \(P_k\) is the covariate distribution in center \(k\) and \(\alpha^\star_k = P(H=k)\) is the probability that a random observation comes from center \(k\) [@berenfeld2025causal].
 
 **Variance estimation.** The asymptotic variance of \(\hat\tau_{\mathrm{GD}}\) is derived in @khellaf2025 (Table 1). We estimate it by plugging in sample quantities:
 $$\hat{V}(\hat\tau) = \frac{\hat\sigma^2}{n\,\hat{p}(1-\hat{p})} + \frac{\Delta\hat\beta^\top\hat\Sigma\Delta\hat\beta}{n},$$
@@ -106,7 +106,7 @@ where \(\mathrm{RSS}_k = \sum_{i=1}^{n_k}(Y_{ki} - \hat{Y}_{ki})^2\) is the resi
 
 ```{r, eval=TRUE}
 library(dsRctFedClient)
-library(dsRctFed)
+library(dsRctFed)   # server package, needed to register methods in the local DSLite simulation
 library(DSLite)
 library(MASS)
 ```
@@ -284,6 +284,10 @@ To finish, we show that the pooled estimator is equal to the federated one
 isTRUE(all.equal(pooled_ate, federated_ate$ate))
 ```
 
+```{r, eval = TRUE}
+DSI::datashield.logout(conns)
+```
+
 ## Example 2 — The role of privacy settings
 
 This second example illustrates how DataSHIELD's disclosure controls interact with the federated estimation. We use the same model parameters and covariate distribution as Example 1, but with more extreme treatment probabilities: three centers assign treatment with probability 0.9 and two centers with probability 0.1.
@@ -395,6 +399,36 @@ cat(sprintf("ATE: %.4f  SE: %.4f  95%% CI: [%.4f, %.4f]  True ATE: %.4f\n",
 ```
 
 The estimation now succeeds. Note, however, that the standard error is larger than in Example 1: the extreme imbalance in treatment allocation reduces the effective sample size for both arms, inflating the variance of the ATE estimator.
+
+We now compute the pooled estimator on the centralized data from Example 2 and verify that it matches the federated one.
+
+```{r, eval = TRUE}
+pooled_data_2 <- do.call(rbind, data_list_2)
+pooled_data_treated_2 <- pooled_data_2[pooled_data_2$W == 1, ]
+pooled_data_control_2 <- pooled_data_2[pooled_data_2$W == 0, ]
+
+model_treated_2 <- glm(formula = formula, family = gaussian, data = pooled_data_treated_2)
+model_control_2 <- glm(formula = formula, family = gaussian, data = pooled_data_control_2)
+
+coef_treated_2 <- model_treated_2$coefficients
+coef_control_2 <- model_control_2$coefficients
+
+alpha1_2 <- coef_treated_2["(Intercept)"]
+alpha0_2 <- coef_control_2["(Intercept)"]
+beta1_2  <- coef_treated_2[covariate_names]
+beta0_2  <- coef_control_2[covariate_names]
+
+tau_diff_2   <- alpha1_2 - alpha0_2
+gamma_diff_2 <- beta1_2 - beta0_2
+
+X_mat_2 <- as.matrix(pooled_data_2[, covariate_names, drop = FALSE])
+x_bar_2 <- colMeans(X_mat_2, na.rm = TRUE)
+pooled_ate_2 <- as.numeric(tau_diff_2 + sum(x_bar_2 * gamma_diff_2))
+```
+
+```{r, eval = TRUE}
+isTRUE(all.equal(pooled_ate_2, federated_ate_2$ate))
+```
 
 ```{r, eval = TRUE}
 DSI::datashield.logout(conns_2)

@@ -10,7 +10,8 @@ ds.EstimateAte(
   outcome_name,
   treatment_name,
   covariate_names,
-  compute_variance = TRUE
+  compute_variance = TRUE,
+  study_effects = FALSE
 )
 }
 \arguments{
@@ -32,6 +33,17 @@ returns the residual sum of squares and projected scatter scalar needed for
 the delta-method variance and 95\\% confidence interval.  Set to
 \code{FALSE} to request only the point estimate, minimizing the
 information disclosed by each server.}
+
+\item{study_effects}{Logical. If \code{FALSE} (default), the homogeneous
+model is assumed (Definition 8 of Khellaf et al., 2025).  If \code{TRUE},
+the adjusted GD estimator (Definition 9 of Khellaf et al., 2025) is used:
+\code{addStudyIdDS()} appends K-1 integer dummy columns
+(\code{study_id2}, \ldots, \code{study_idK}) to each server's data frame,
+and the federated GLMs are fitted on the augmented design matrix.  The
+asymptotic variance is identical to the unadjusted case (Appendix B.4.2
+of Khellaf et al., 2025); the degrees of freedom adjust from
+\eqn{n - 2(d+1)} to \eqn{n - 2(d+K)} automatically.  Has no effect and
+emits a warning when only one datasource is present.}
 }
 \value{
 When \code{compute_variance = TRUE}, a named list with seven
@@ -47,10 +59,11 @@ elements:
 }
 When \code{compute_variance = FALSE}, a named list with four elements:
 \code{ate}, \code{n_total}, \code{n_k}, \code{ate_k}.
+The structure is the same regardless of \code{study_effects}.
 }
 \description{
 Client-side function that orchestrates the federated computation of an
-average treatment effect (ATE) and, optionally, its delta-method variance
+average treatment effect (ATE) and, optionally, its variance
 and confidence interval, for data collected in a randomised controlled trial
 (RCT) setting using DataSHIELD.
 }
@@ -63,6 +76,16 @@ limits the information returned by each server to the three scalars strictly
 needed for the point estimate (\eqn{n_k}, \eqn{n_k^{(1)}},
 \eqn{\hat\tau_k}), omitting the residual sum of squares and projected scatter
 that are required for the variance but constitute additional disclosure.
+
+\strong{Server-side objects created.}  The function always creates two
+symbols on every server: \code{<base_name>_treated} and
+\code{<base_name>_control} (the arm-specific subsets used by
+\code{ds.glm}).  When \code{study_effects = TRUE}, a third symbol
+\code{<base_name>_study_adj} is also created, holding the original data
+frame augmented with the K-1 integer study dummy columns.  All three
+symbols persist in the server workspace after the function returns,
+consistent with standard DataSHIELD practice.  The caller's original
+\code{base_name} object is never modified.
 
 When \code{compute_variance = TRUE} (the default), the variance estimator
 has two components:
@@ -96,4 +119,10 @@ result_ate <- ds.EstimateAte(
 )
 DSI::datashield.logout(conns)
 }
+}
+\references{
+Khellaf, R., Bellet, A., and Josse, J. (2025).
+Federated Causal Inference: Multi-Study ATE Estimation beyond Meta-Analysis.
+\emph{Proceedings of the 28th International Conference on Artificial
+Intelligence and Statistics (AISTATS 2025)}.
 }
