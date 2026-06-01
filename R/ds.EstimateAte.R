@@ -335,7 +335,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
       t(X_bar_prime) %*% (vcov_treated + vcov_control) %*% X_bar_prime
     )
   } else {
-    # Homogeneous closed form (Corollary 1) — valid when C = 0,
+    # Homogeneous closed form,
     # i.e. when p_k ≡ p or μ_k ≡ μ.
     p_hat      <- n_1 / n
     first_term <- sigma2_hat / (n * p_hat * (1 - p_hat))

@@ -437,55 +437,321 @@ isTRUE(all.equal(pooled_ate_2, federated_ate_2$ate))
 DSI::datashield.logout(conns_2)
 ```
 
-## Example 3 — Study effects
+## Example 3 — Heterogeneous covariate distributions
 
-In practice, RCTs conducted at different institutions often exhibit systematic differences in their baseline outcome levels. These **study effects** can arise from variations in patient populations, clinical protocols, outcome measurement procedures, or unobserved centre-level factors. This example reproduces the simulation setting of Appendix C.4 of @khellaf2025, which introduces such effects and examines their impact on federated ATE estimation.
+This third example reproduces the simulation setting of Appendix C.3 of @khellaf2025,
+which extends the homogeneous setup of Example 1 to the case where each center recruits
+from a **different patient population**. Both the covariate mean $\mu_k$ and covariance
+$\Sigma_k$ now vary across centers, reflecting the reality that multi-center trials
+often recruit from geographically or demographically distinct patient pools. As in
+Example 1, treatment probabilities also differ across centers ($p_k \neq p_{k'}$), so
+study membership $H$ influences both the covariate distribution $X$ and treatment
+assignment $W$.
 
-The key challenge is that when study effects coexist with heterogeneous treatment probabilities across centres, the study membership variable $H$ becomes a confounder between treatment $W$ and outcome $Y$: centres with high $p_k$ will have more treated observations *and* systematically different outcomes if $h_k$ is large. In this setting, unadjusted federated estimators — including the standard GD estimator — are biased. We first demonstrate this bias, then show how passing `study_effects = TRUE` to `ds.EstimateAte()` removes it by augmenting the design matrix with study membership dummies, implementing the adjusted GD estimator ($\hat\tau_{\mathrm{GD_o}}$) of @khellaf2025 (Definition 9).
+The GD estimator and the federated/pooled equivalence remain valid under distributional
+shift. However, the homogeneous variance formula of Example 1 relies on the assumption
+that $p_k$ and $\mu_k$ are constant across sites and is no longer appropriate here.
+The correct variance estimator uses the per-arm Gram matrix inverses returned by
+`ds.glm(viewVarCov = TRUE)`, activated by passing `heterogeneous = TRUE` to
+`ds.EstimateAte()`.
 
 ### Mathematical Formulation
 
-The data-generating model extends the linear potential-outcome framework of Example 1 by adding a study-specific intercept $h_k \in \mathbb{R}$ to both potential outcomes:
-$$Y_{k,i}(w) = c^{(w)} + h_k + X_{k,i}^\top\beta^{(w)} + \varepsilon_{k,i}(w), \qquad \varepsilon_{k,i}(w) \stackrel{\mathrm{iid}}{\sim} \mathcal{N}(0, \sigma^2).$$
-Because $h_k$ appears identically in both arms, it cancels in the individual treatment effect $Y^{(1)} - Y^{(0)}$, and the ATE remains:
-$$\tau^\star = (c^{(1)} - c^{(0)}) + (\beta^{(1)} - \beta^{(0)})^\top\mu_X = -1.1.$$
+**Data structure.** The graphical model now includes arrows from $H$ (study membership)
+to both $X$ (covariates) and $W$ (treatment), since the covariate distribution and
+the treatment probability both depend on the center.
 
-**Confounding.** As depicted in Figure 3 of @khellaf2025, the graphical model now contains a directed path $H \to W$ (through $p_k$) alongside $H \to Y$ (through $h_k$), making $H$ a confounder. The unadjusted pooled estimator is biased whenever $p_k$ are not equal across studies (Appendix B.4.1 of @khellaf2025): the regression on the treatment arm conflates the arm-specific sample composition with the treatment effect.
+```{r graphical-model-het, echo = FALSE, out.width = "250px", fig.align = "center", fig.cap = "Causal relationships under distributional shift: center H influences both covariate distribution X and treatment assignment W; treatment W and covariates X affect outcome Y"}
+knitr::include_graphics("figure2_small.svg")
+```
 
-**Adjusted GD estimator.** The bias is removed by augmenting each server's design matrix with $K - 1$ integer study-dummy columns $(H_2, \ldots, H_K)$, where $H_{k,j} = \mathbf{1}\{k = j\}$. The arm-specific linear regressions are fitted on the extended matrix $\tilde{X}_{k,i} = (1, X_{k,i}, H_{2,k,i}, \ldots, H_{K,k,i})$, absorbing the $h_k$ shifts. The resulting adjusted GD estimator is unbiased and achieves the same asymptotic variance as the unadjusted GD estimator — the $h_k$ terms cancel exactly in $\hat\theta^{(1)} - \hat\theta^{(0)}$ and do not inflate the variance (Appendix B.4.2 of @khellaf2025).
+**Data generation.** For individual $i$ in center $k$, covariates are drawn as
+$X_{k,i} \sim \mathcal{N}(\mu_k, \Sigma_k)$ with site-specific mean and covariance.
+Treatment is assigned as $W_{k,i} \sim \mathrm{Bernoulli}(p_k)$ with site-specific
+probability $p_k$, independently of $X_{k,i}$, so randomization is preserved at every
+site. Potential outcomes follow the same linear model as in Example 1:
+$$Y_{k,i}^{(w)} = \alpha_w + \beta_w^\top X_{k,i} + \varepsilon_{k,i}^{(w)}, \qquad
+\varepsilon_{k,i}^{(w)} \stackrel{\mathrm{iid}}{\sim} \mathcal{N}(0,\,\sigma^2),
+\quad w \in \{0,1\}.$$
+
+**Local and global ATEs.** Because the covariate means differ across sites, so do the
+site-specific ATEs:
+$$\tau_k^\star = (\alpha_1 - \alpha_0) + (\beta_1 - \beta_0)^\top \mu_k.$$
+The global ATE, targeting the pooled population, is their weighted average under the
+mixing proportions $\alpha_k^\star = P(H = k)$:
+$$\tau^\star = \sum_{k=1}^K \alpha_k^\star\,\tau_k^\star
+= (\alpha_1 - \alpha_0) + (\beta_1 - \beta_0)^\top\bar\mu,
+\qquad \bar\mu = \sum_k \alpha_k^\star\,\mu_k.$$
+In practice $\alpha_k^\star$ is unknown and estimated by $n_k/n$, so the GD estimator
+targets $\hat\tau = \sum_k (n_k/n)\,\hat\tau_k$.
+
+**Variance estimation.** Under distributional shift, the correct asymptotic variance
+of $\hat\tau_{\mathrm{GD}}$ (Table 1 of @khellaf2025) is:
+$$\hat{V}(\hat\tau) = \underbrace{\bar{X}^{\prime\top}\!\left(\widehat{\mathrm{Cov}}(\hat\theta^{(1)}) +
+\widehat{\mathrm{Cov}}(\hat\theta^{(0)})\right)\!\bar{X}^{\prime}}_{\text{OLS noise}} +
+\underbrace{\frac{\Delta\hat\beta^\top\hat\Sigma\Delta\hat\beta}{n}}_{\text{covariate scatter}},$$
+where $\bar{X}^{\prime} = (1,\,\bar{X})^\top$ is the augmented pooled covariate mean and
+$\widehat{\mathrm{Cov}}(\hat\theta^{(w)}) = \hat\sigma^2(\tilde{X}^{(w)\top}\tilde{X}^{(w)})^{-1}$
+is the standard OLS covariance matrix of the arm-$w$ coefficient vector, returned directly
+by `ds.glm(viewVarCov = TRUE)`. The OLS noise term replaces the closed-form
+$\hat\sigma^2/[n\hat{p}(1-\hat{p})]$ of Example 1 with this expression, which is valid
+under full heterogeneity. The covariate scatter term and the noise variance
+$\hat\sigma^2 = \sum_k \mathrm{RSS}_k / [n - 2(d+1)]$ are estimated exactly as in
+Example 1.
+
+**Shared information.** Two additional disclosure steps are required relative to
+Example 1. First, `ds.glm(viewVarCov = TRUE)` makes each server return the $(d+1)\times(d+1)$
+scaled variance–covariance matrix of the arm-specific GLM coefficients; the client uses
+these to assemble the Gram inverses $\hat{G}^{(w)-1}$. Second, `localAteDS` with
+`heterogeneous = TRUE` returns the column sums $n_k\bar{X}_k$ of the covariate matrix,
+which the client aggregates to form the global covariate mean $\bar{X}$. No individual-level
+data are transmitted in either step.
 
 ### Parameters
 
-All model parameters are identical to Example 1 except for the addition of the study effects $\{h_k\}$ and imbalanced treatment probabilities, matching Appendix C.4 of @khellaf2025.
+The parameters defined in Appendix C.3 of @khellaf2025 are
 
 ```{r, eval = TRUE}
 set.seed(123)
 
-# Parameters (same as Example 1)
 K           <- 5
 d           <- 10
-n_per_study <- 20 * d
+# Imbalanced sample sizes (inspired by Appendix C.2.2):
+# one large study and four smaller ones, same total n as the balanced case.
+n_list      <- c(600, 120, 120, 120, 120)
+sigma_noise <- 1.0
+alpha_0     <- -2
+alpha_1     <- -1.85
+beta_1      <- seq(-1.75, 0.5, by = 0.25)
+beta_0      <- seq(-1.8,  0.0, by = 0.2)
+
+p_treatment_het <- c(0.65, 0.65, 0.65, 0.35, 0.35) # site-specific treatment probabilities
+
+# Site-specific covariate means — Appendix C.3
+mu_list <- list(
+  c(rep( 1.0, d / 2), rep(-1.0, d / 2)),
+  c(rep(-1.0, d / 2), rep( 1.0, d / 2)),
+  rep(0, d),
+  c(rep( 0.5, d / 2), rep(-1.0, d / 2)),
+  c(rep( 1.2, d / 2), rep( 0.8, d / 2))
+)
+
+I_d <- diag(d)
+J   <- matrix(1, nrow = d, ncol = d)
+
+# Site-specific covariance matrices — Appendix C.3
+Sigma_1    <- 0.5 * I_d + 0.5 * J
+Sigma_list <- list(
+  Sigma_1,
+  20 * Sigma_1 + 0.5 * I_d - 0.5 * J,
+  0.02 * Sigma_1 + 0.7  * I_d,
+  1.0  * Sigma_1 + 0.5  * I_d - 0.15 * J,
+  1.5  * Sigma_1 + 0.5  * I_d - 0.15 * J
+)
+```
+
+The true ATE is the $n_k/n$-weighted average of the site-specific ATEs
+(since study sizes differ, equal-weight averaging would target a different estimand):
+
+```{r, eval = TRUE}
+tau_k_vec    <- sapply(mu_list, function(mu_k) {
+  (alpha_1 - alpha_0) + sum(mu_k * (beta_1 - beta_0))
+})
+true_ATE_het <- sum(n_list * tau_k_vec) / sum(n_list)
+print(true_ATE_het)
+```
+
+### Data Generation
+
+```{r, eval = TRUE}
+data_list_het <- vector("list", K)
+for (k in 1:K) {
+  n_k   <- n_list[k]
+  X_k   <- mvrnorm(n = n_k, mu = mu_list[[k]], Sigma = Sigma_list[[k]])
+  W_k   <- rbinom(n = n_k, size = 1, prob = p_treatment_het[k])
+  Y_0   <- alpha_0 + X_k %*% beta_0 + rnorm(n_k, sd = sigma_noise)
+  Y_1   <- alpha_1 + X_k %*% beta_1 + rnorm(n_k, sd = sigma_noise)
+  Y_obs <- W_k * Y_1 + (1 - W_k) * Y_0
+  data_list_het[[k]] <- data.frame(
+    subject_id = 1:n_k, W = W_k, Y = as.vector(Y_obs), X_k
+  )
+  colnames(data_list_het[[k]]) <- c("subject_id", "W", "Y", paste0("X", 1:d))
+}
+pooled_data_het <- do.call(rbind, data_list_het)
+```
+
+### Creation of DSLite Servers
+
+Even the smallest studies ($n_k = 120$) have a minimum expected arm size of
+$0.35 \times 120 = 42$ observations — comfortably above the `nfilter.glm` threshold of
+$(d+1)/0.33 \approx 33$. We therefore use the default `banana` privacy settings.
+
+```{r, eval = TRUE}
+options(
+  datashield.privacyControlLevel = "banana",
+  nfilter.glm                    = 0.33
+)
+
+for (k in 1:K) {
+  server_name <- paste0("dslite.server_het", k)
+  server_obj  <- DSLite::newDSLiteServer(tables = list(study_data = data_list_het[[k]]))
+  server_obj$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  server_obj$aggregateMethod("localAteDS", "localAteDS")
+  assign(server_name, server_obj, envir = .GlobalEnv)
+}
+
+builder_het <- DSI::newDSLoginBuilder()
+for (k in 1:K) {
+  builder_het$append(
+    server = paste0("study", k),
+    url    = paste0("dslite.server_het", k),
+    table  = "study_data",
+    driver = "DSLiteDriver"
+  )
+}
+
+conns_het <- DSI::datashield.login(logins = builder_het$build(), assign = FALSE)
+DSI::datashield.assign.table(conns = conns_het, table = "study_data", symbol = "base")
+```
+
+### Federated Estimation of the ATE
+
+We pass `heterogeneous = TRUE` to use the Gram-inverse-based variance formula, which is appropriate here because the covariate distributions differ across centers.
+
+```{r, results = 'hide', message = FALSE}
+federated_ate_het <- ds.EstimateAte(
+  datasources     = conns_het,
+  base_name       = base_name,
+  outcome_name    = outcome_name,
+  treatment_name  = treatment_name,
+  covariate_names = covariate_names,
+  heterogeneous   = TRUE
+)
+```
+
+The federated ATE, its standard error, and the 95% confidence interval are:
+
+```{r, eval = TRUE}
+cat(sprintf("ATE: %.4f  SE: %.4f  95%% CI: [%.4f, %.4f]  True ATE: %.4f\n",
+            federated_ate_het$ate, sqrt(federated_ate_het$variance),
+            federated_ate_het$ci_lower, federated_ate_het$ci_upper, true_ATE_het))
+```
+
+We now verify that the federated ATE is identical to the pooled centralised estimator.
+
+```{r, eval = TRUE}
+pooled_treated_het <- pooled_data_het[pooled_data_het$W == 1, ]
+pooled_control_het <- pooled_data_het[pooled_data_het$W == 0, ]
+
+formula_het   <- paste0(outcome_name, " ~ ", paste(covariate_names, collapse = " + "))
+
+model_treated_het <- glm(formula = formula_het, family = gaussian, data = pooled_treated_het)
+model_control_het <- glm(formula = formula_het, family = gaussian, data = pooled_control_het)
+
+coef_treated_het <- model_treated_het$coefficients
+coef_control_het <- model_control_het$coefficients
+
+alpha1_het <- coef_treated_het["(Intercept)"]
+alpha0_het <- coef_control_het["(Intercept)"]
+beta1_het  <- coef_treated_het[covariate_names]
+beta0_het  <- coef_control_het[covariate_names]
+
+x_bar_het      <- colMeans(as.matrix(pooled_data_het[, covariate_names]))
+pooled_ate_het <- as.numeric(
+  (alpha1_het - alpha0_het) + sum(x_bar_het * (beta1_het - beta0_het))
+)
+```
+
+```{r, eval = TRUE}
+isTRUE(all.equal(pooled_ate_het, federated_ate_het$ate))
+```
+
+```{r, eval = TRUE}
+DSI::datashield.logout(conns_het)
+```
+
+## Example 4 — Study effects
+
+Even when randomisation is correctly implemented at every site, multi-centre RCTs routinely exhibit systematic differences in **baseline outcome levels** across centres. These **study effects** are conceptually distinct from the distributional shift addressed in Example 3: they do not arise from recruiting different patient populations, but from unmeasured **centre-level factors** that shift outcomes additively at every site, independently of patient characteristics. Typical drivers include differences in standard-of-care practices, investigator expertise and training, local therapeutic protocols, or the way outcomes are ascertained and recorded. Formally, centre $k$ contributes a scalar $h_k \in \mathbb{R}$ that is added identically to both potential outcomes (model (16) of @khellaf2025), so the individual treatment effect $Y^{(1)} - Y^{(0)}$ — and hence the ATE — is unaffected by $h_k$.
+
+The statistical challenge arises when study effects coexist with heterogeneous treatment probabilities: centre membership $H$ then simultaneously affects the outcome $Y$ (through $h_k$) and the treatment assignment $W$ (through $p_k$), opening a confounding path $H \to Y$ alongside $H \to W$ that violates the ignorability assumption in the pooled data. A centre with a large $h_k$ and a high $p_k$ will simultaneously have more treated observations *and* an elevated outcome baseline, causing naïve estimators to conflate the treatment effect with the site-level intercept shifts. We first demonstrate this bias, then show how passing `study_effects = TRUE` to `ds.EstimateAte()` corrects it by augmenting the design matrix with study membership dummies, implementing the adjusted GD estimator $\hat\tau_{\mathrm{GD}_\circ}$ (Definition 9 of @khellaf2025).
+
+### Mathematical Formulation
+
+The data-generating model combines the distributional shift of Example 3 with a study-specific intercept $h_k \in \mathbb{R}$ added to both potential outcomes:
+$$Y_{k,i}(w) = c^{(w)} + h_k + X_{k,i}^\top\beta^{(w)} + \varepsilon_{k,i}(w), \qquad \varepsilon_{k,i}(w) \stackrel{\mathrm{iid}}{\sim} \mathcal{N}(0, \sigma^2),$$
+where covariates are drawn as $X_{k,i} \sim \mathcal{N}(\mu_k, \Sigma_k)$ with the same site-specific parameters as Example 3.
+Because $h_k$ appears identically in both arms, it cancels in the individual treatment effect $Y^{(1)} - Y^{(0)}$. The site-specific ATEs and the global ATE are therefore:
+$$\tau_k^\star = (c^{(1)} - c^{(0)}) + (\beta^{(1)} - \beta^{(0)})^\top\mu_k, \qquad
+\tau^\star = \sum_{k=1}^K \alpha_k^\star\,\tau_k^\star,$$
+where $\alpha_k^\star = P(H = k)$, estimated by $n_k / n$.
+
+**Confounding.** As depicted in Figure 3 of @khellaf2025, the graphical model now contains directed paths $H \to W$ (through $p_k$), $H \to X$ (through $\mu_k$, $\Sigma_k$), and $H \to Y$ (through $h_k$), making $H$ a confounder on both the covariate and outcome channels.
+
+```{r graphical-model-study, echo = FALSE, out.width = "250px", fig.align = "center", fig.cap = "Causal relationships under study effects: centre H influences treatment assignment W and directly shifts the outcome Y through study-specific intercepts; covariates X affect Y but their distribution is homogeneous across centres"}
+knitr::include_graphics("figure3_small.svg")
+```
+
+The unadjusted pooled estimator is biased whenever $p_k$ are not equal across studies (Appendix B.4.1 of @khellaf2025): the regression on the treatment arm conflates the arm-specific sample composition with the treatment effect.
+
+**Adjusted estimator.** The bias is removed by augmenting each server's design matrix with $K - 1$ integer study-dummy columns $(H_2, \ldots, H_K)$, where $H_{k,j} = \mathbf{1}\{k = j\}$. The arm-specific linear regressions are fitted on the extended matrix $\tilde{X}_{k,i} = (1, X_{k,i}, H_{2,k,i}, \ldots, H_{K,k,i})$, absorbing the $h_k$ shifts. The resulting adjusted GD estimator is unbiased and achieves the same asymptotic variance as the unadjusted GD estimator — the $h_k$ terms cancel exactly in $\hat\theta^{(1)} - \hat\theta^{(0)}$ and do not inflate the variance (Appendix B.4.2 of @khellaf2025).
+
+### Parameters
+
+The outcome model parameters and the study effects match Appendix C.4 of @khellaf2025. The covariate distributions are taken from Example 3 (Appendix C.3).
+
+```{r, eval = TRUE}
+set.seed(123)
+
+K           <- 5
+d           <- 10
+# Imbalanced sample sizes: one large study and four equal-sized ones.
+# Small studies use n = 300 so that the minority arm (~30 observations with
+# p = 0.1 or p = 0.9) safely exceeds the (d + K) / nfilter.glm = 15 threshold
+# imposed by study_effects = TRUE, which adds K - 1 = 4 dummy covariates.
+n_list      <- c(600, 300, 300, 300, 300)
 sigma_noise <- 1.0
 alpha_0     <- -2
 alpha_1     <- -1.85
 beta_1      <- seq(-1.75, 0.5,  by = 0.25)
 beta_0      <- seq(-1.8,  0.0,  by = 0.2)
-mu_X        <- c(rep(1, d %/% 2), rep(-1, d %/% 2))
-I_d         <- diag(d)
-J           <- matrix(1, nrow = d, ncol = d)
-Sigma_X     <- 0.5 * I_d + 0.5 * J
+
+# Site-specific covariate means — same as Example 3 (Appendix C.3)
+mu_list <- list(
+  c(rep( 1.0, d / 2), rep(-1.0, d / 2)),
+  c(rep(-1.0, d / 2), rep( 1.0, d / 2)),
+  rep(0, d),
+  c(rep( 0.5, d / 2), rep(-1.0, d / 2)),
+  c(rep( 1.2, d / 2), rep( 0.8, d / 2))
+)
+
+I_d     <- diag(d)
+J       <- matrix(1, nrow = d, ncol = d)
+Sigma_1 <- 0.5 * I_d + 0.5 * J
+
+# Site-specific covariance matrices — same as Example 3 (Appendix C.3)
+Sigma_list <- list(
+  Sigma_1,
+  20 * Sigma_1 + 0.5 * I_d - 0.5 * J,
+  0.02 * Sigma_1 + 0.7  * I_d,
+  1.0  * Sigma_1 + 0.5  * I_d - 0.15 * J,
+  1.5  * Sigma_1 + 0.5  * I_d - 0.15 * J
+)
 
 # Study effects — Appendix C.4
-h_k         <- c(1, 2, -1, 30, 2)
+h_k           <- c(1, 2, -1, 30, 2)
 
 # Imbalanced treatment probabilities — Large regime of Appendix C.4
 p_treatment_3 <- c(0.9, 0.9, 0.9, 0.1, 0.1)
 ```
 
-The true ATE is unchanged, since $h_k$ cancels in the difference of potential outcomes:
+The true ATE is the $n_k/n$-weighted average of the site-specific ATEs (the $h_k$ terms cancel in $Y^{(1)} - Y^{(0)}$, so they do not affect it):
 
 ```{r, eval = TRUE}
-true_ATE <- (alpha_1 - alpha_0) + sum(mu_X * (beta_1 - beta_0))
+tau_k_vec <- sapply(mu_list, function(mu_k) {
+  (alpha_1 - alpha_0) + sum(mu_k * (beta_1 - beta_0))
+})
+true_ATE <- sum(n_list * tau_k_vec) / sum(n_list)
 print(true_ATE)
 ```
 
@@ -494,15 +760,16 @@ print(true_ATE)
 ```{r, eval = TRUE}
 data_list_3 <- vector("list", K)
 for (k in 1:K) {
-  X_k <- mvrnorm(n = n_per_study, mu = mu_X, Sigma = Sigma_X)
-  W_k <- rbinom(n = n_per_study, size = 1, prob = p_treatment_3[k])
+  n_k <- n_list[k]
+  X_k <- mvrnorm(n = n_k, mu = mu_list[[k]], Sigma = Sigma_list[[k]])
+  W_k <- rbinom(n = n_k, size = 1, prob = p_treatment_3[k])
 
-  Y_0   <- alpha_0 + h_k[k] + X_k %*% beta_0 + rnorm(n_per_study, sd = sigma_noise)
-  Y_1   <- alpha_1 + h_k[k] + X_k %*% beta_1 + rnorm(n_per_study, sd = sigma_noise)
+  Y_0   <- alpha_0 + h_k[k] + X_k %*% beta_0 + rnorm(n_k, sd = sigma_noise)
+  Y_1   <- alpha_1 + h_k[k] + X_k %*% beta_1 + rnorm(n_k, sd = sigma_noise)
   Y_obs <- W_k * Y_1 + (1 - W_k) * Y_0
 
   data_list_3[[k]] <- data.frame(
-    subject_id = 1:n_per_study, W = W_k, Y = as.vector(Y_obs), X_k
+    subject_id = 1:n_k, W = W_k, Y = as.vector(Y_obs), X_k
   )
   colnames(data_list_3[[k]]) <- c("subject_id", "W", "Y", paste0("X", 1:d))
 }
@@ -542,7 +809,7 @@ DSI::datashield.assign.table(conns = conns_3, table = "study_data", symbol = "ba
 
 ### Unadjusted Estimation — Bias Under Study Effects
 
-Without adjustment, the unadjusted GD estimator conflates the treatment effect with the study-level intercept shifts. Centre 4 has both a very large study effect ($h_4 = 30$) and a low treatment probability ($p_4 = 0.1$): most of its observations are controls, making the treatment arm appear systematically different in ways that are entirely explained by the study effect rather than by the treatment itself.
+Without adjustment, the estimator conflates the treatment effect with the study-level intercept shifts. Centre 4 has both a very large study effect ($h_4 = 30$) and a low treatment probability ($p_4 = 0.1$): most of its observations are controls, making the treatment arm appear systematically different in ways that are entirely explained by the study effect rather than by the treatment itself.
 
 ```{r, results = 'hide', message = FALSE}
 federated_ate_unadj <- ds.EstimateAte(
@@ -563,11 +830,11 @@ cat(sprintf("Unadjusted ATE: %.4f   bias: %.4f   (true ATE: %.4f)\n",
             true_ATE))
 ```
 
-The bias is substantial: the unadjusted estimator departs markedly from the true ATE of $-1.1$.
+The bias is substantial: the unadjusted estimator departs markedly from the true ATE.
 
 ### Adjusted Estimation — Accounting for Study Effects
 
-Setting `study_effects = TRUE` instructs `ds.EstimateAte()` to call `addStudyIdDS()` on each server, which appends $K - 1 = 4$ binary columns (`study_id2`, ..., `study_id5`) to the local data frame. The arm-specific GLMs are then fitted on the augmented design matrix $(1, X_1, \ldots, X_{10}, H_2, \ldots, H_5)$, absorbing the $h_k$ shifts and removing the confounding. No individual-level data are shared at any point.
+Setting `study_effects = TRUE` instructs `ds.EstimateAte()` to call `addStudyIdDS()` on each server, which appends $K - 1 = 4$ binary columns (`study_id2`, ..., `study_id5`) to the local data frame. The arm-specific GLMs are then fitted on the augmented design matrix $(1, X_1, \ldots, X_{10}, H_2, \ldots, H_5)$, absorbing the $h_k$ shifts and removing the confounding. Because covariate distributions differ across centres (as in Example 3), we also pass `heterogeneous = TRUE` to use the OLS-covariance-based variance formula, which is valid under distributional shift. No individual-level data are shared at any point.
 
 ```{r, results = 'hide', message = FALSE}
 federated_ate_adj <- ds.EstimateAte(
@@ -577,7 +844,7 @@ federated_ate_adj <- ds.EstimateAte(
   treatment_name  = treatment_name,
   covariate_names = covariate_names,
   study_effects   = TRUE,
-  heterogeneous   = FALSE
+  heterogeneous   = TRUE
 )
 ```
 
@@ -587,22 +854,19 @@ cat(sprintf("Adjusted ATE: %.4f  SE: %.4f  95%% CI: [%.4f, %.4f]  True ATE: %.4f
             federated_ate_adj$ci_lower, federated_ate_adj$ci_upper, true_ATE))
 ```
 
-The adjusted estimator is close to the true ATE of $-1.1$, confirming that conditioning on study membership removes the bias. The confidence interval covers the true value.
+The adjusted estimator is close to the true ATE, confirming that conditioning on study membership removes the bias. The confidence interval covers the true value.
 
 ### Comparison with the Pooled Adjusted Estimator
 
 We verify that the federated adjusted estimator recovers exactly the same ATE as the centralised analysis on the augmented design matrix — a consequence of the pooling property of the GD estimator (Theorem 1 of @khellaf2025).
 
 ```{r, eval = TRUE}
-# Augment pooled data with study dummy columns (study 1 is the reference)
-pooled_data_3 <- do.call(rbind, data_list_3)
-study_ids     <- rep(1:K, each = n_per_study)
-for (j in 2:K) {
-  pooled_data_3[[paste0("study_id", j)]] <- as.integer(study_ids == j)
-}
+pooled_data_3          <- do.call(rbind, data_list_3)
+pooled_data_3$study_id <- factor(rep(1:K, times = n_list))  # study 1 is reference
 
-cov_names_adj <- c(covariate_names, paste0("study_id", 2:K))
-formula_adj   <- paste0(outcome_name, " ~ ", paste(cov_names_adj, collapse = " + "))
+formula_adj <- paste0(outcome_name, " ~ ",
+                      paste(covariate_names, collapse = " + "),
+                      " + study_id")
 
 pooled_treated_3 <- pooled_data_3[pooled_data_3$W == 1, ]
 pooled_control_3 <- pooled_data_3[pooled_data_3$W == 0, ]
@@ -610,20 +874,17 @@ pooled_control_3 <- pooled_data_3[pooled_data_3$W == 0, ]
 model_treated_3 <- glm(formula = formula_adj, family = gaussian, data = pooled_treated_3)
 model_control_3 <- glm(formula = formula_adj, family = gaussian, data = pooled_control_3)
 
-coef_treated_3 <- model_treated_3$coefficients
-coef_control_3 <- model_control_3$coefficients
+alpha1_3 <- coef(model_treated_3)["(Intercept)"]
+alpha0_3 <- coef(model_control_3)["(Intercept)"]
 
-alpha1_3 <- coef_treated_3["(Intercept)"]
-alpha0_3 <- coef_control_3["(Intercept)"]
-beta1_3  <- coef_treated_3[cov_names_adj]
-beta0_3  <- coef_control_3[cov_names_adj]
+# Use model.matrix so coefficient names match exactly what glm() produced
+X_mat_3      <- model.matrix(as.formula(sub(paste0(outcome_name, " ~ "), "~ ", formula_adj)),
+                             data = pooled_data_3)[, -1L, drop = FALSE]
+x_bar_3      <- colMeans(X_mat_3)
+slope_names  <- colnames(X_mat_3)
+gamma_diff_3 <- coef(model_treated_3)[slope_names] - coef(model_control_3)[slope_names]
 
-tau_diff_3   <- alpha1_3 - alpha0_3
-gamma_diff_3 <- beta1_3 - beta0_3
-
-X_mat_3      <- as.matrix(pooled_data_3[, cov_names_adj, drop = FALSE])
-x_bar_3      <- colMeans(X_mat_3, na.rm = TRUE)
-pooled_ate_3 <- as.numeric(tau_diff_3 + sum(x_bar_3 * gamma_diff_3))
+pooled_ate_3 <- as.numeric((alpha1_3 - alpha0_3) + sum(x_bar_3 * gamma_diff_3))
 ```
 
 ```{r, eval = TRUE}
