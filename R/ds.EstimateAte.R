@@ -24,15 +24,9 @@
 #' consistent with standard DataSHIELD practice.  The caller's original
 #' \code{base_name} object is never modified.
 #'
-#' When \code{compute_variance = TRUE} (the default), the variance estimator
-#' has two components:
-#' \enumerate{
-#'   \item OLS noise: \eqn{\hat\sigma^2 / (n\,\hat p(1-\hat p))}, where
-#'     \eqn{\hat\sigma^2} uses the pooled df \eqn{n - 2(d+1)}.
-#'   \item Covariate-mean uncertainty:
-#'     \eqn{\Delta\hat\beta^\top\hat\Sigma\Delta\hat\beta / n}, pooled from
-#'     per-server scatter scalars.
-#' }
+#' When \code{compute_variance = TRUE} (the default), a delta-method variance
+#' estimate and 95\% confidence interval are also returned.  The formula used
+#' depends on the \code{heterogeneous} argument; see below.
 #'
 #' @param datasources A list of \code{\link[DSI]{DSConnection-class}} objects.
 #'   If \code{NULL}, uses \code{\link[DSI]{datashield.connections_find}}.
@@ -42,21 +36,36 @@
 #' @param treatment_name A character string naming the binary treatment
 #'   indicator.
 #' @param covariate_names A character vector of covariate names.
-#' @param compute_variance Logical. If \code{TRUE} (default), each server also
-#'   returns the residual sum of squares and projected scatter scalar needed for
-#'   the delta-method variance and 95\% confidence interval.  Set to
-#'   \code{FALSE} to request only the point estimate, minimizing the
-#'   information disclosed by each server.
-#' @param study_effects Logical. If \code{FALSE} (default), the homogeneous
-#'   model is assumed (Definition 8 of Khellaf et al., 2025).  If \code{TRUE},
-#'   the adjusted GD estimator (Definition 9 of Khellaf et al., 2025) is used:
-#'   \code{addStudyIdDS()} appends K-1 integer dummy columns
+#' @param compute_variance Logical. If \code{TRUE} (default), each server
+#'   returns additional statistics beyond the point estimate (residual sum of
+#'   squares and projected scatter scalar), and — when \code{heterogeneous = TRUE}
+#'   — the per-arm Gram inverses are obtained by calling \code{ds.glm} with
+#'   \code{viewVarCov = TRUE}, and each server additionally returns covariate
+#'   column sums.  All of this constitutes an extra disclosure step.  Set to
+#'   \code{FALSE} to request only the point estimate and minimise the
+#'   information shared by each server.
+#' @param study_effects Logical. If \code{FALSE} (default), the no-study-effects
+#'   model is assumed (potential outcome model (2) of Khellaf et al., 2025):
+#'   there is no arrow H -> Y in the DAG, meaning study membership does not
+#'   directly shift the outcome.  If \code{TRUE}, the study-effects model is
+#'   used (potential outcome model (16) of Khellaf et al., 2025): an arrow
+#'   H -> Y is present, so site-specific intercept shifts confound the estimate
+#'   when treatment probabilities also vary across sites.  \code{addStudyIdDS()} appends K-1 integer dummy columns
 #'   (\code{study_id2}, \ldots, \code{study_idK}) to each server's data frame,
-#'   and the federated GLMs are fitted on the augmented design matrix.  The
-#'   asymptotic variance is identical to the unadjusted case (Appendix B.4.2
-#'   of Khellaf et al., 2025); the degrees of freedom adjust from
-#'   \eqn{n - 2(d+1)} to \eqn{n - 2(d+K)} automatically.  Has no effect and
+#'   and the federated GLMs are fitted on the augmented design matrix, absorbing
+#'   the shifts.  The asymptotic variance is identical to the no-study-effects
+#'   case (Appendix B.4.2 of Khellaf et al., 2025); the degrees of freedom
+#'   adjust from n - 2(d+1) to n - 2(d+K) automatically.  Has no effect and
 #'   emits a warning when only one datasource is present.
+#' @param heterogeneous Logical. If \code{TRUE} (default), the leverage-corrected
+#'   OLS noise component of the variance is computed from the per-arm Gram inverses returned by
+#'   \code{ds.glm(viewVarCov = TRUE)}, using the global covariate mean assembled
+#'   from per-server column sums returned by \code{localAteDS()}.  This is valid
+#'   under full heterogeneity (different covariate distributions and treatment
+#'   probabilities across sites) and is algebraically identical to the
+#'   centralised plug-in variance.  Set to \code{FALSE} to use the simpler homogeneous closed form,
+#'   which is exact only when treatment probabilities or covariate means are
+#'   constant across sites.  Has no effect when \code{compute_variance = FALSE}.
 #'
 #' @return When \code{compute_variance = TRUE}, a named list with seven
 #'   elements:
@@ -104,7 +113,8 @@
 ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
                            treatment_name, covariate_names,
                            compute_variance = TRUE,
-                           study_effects = FALSE) {
+                           study_effects = FALSE,
+                           heterogeneous = TRUE) {
   if (is.null(datasources)) {
     datasources <- DSI::datashield.connections_find()
   }
@@ -159,17 +169,21 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 
   # Federated arm-specific OLS --------------------------------------------------
 
+  need_vcov <- heterogeneous && compute_variance
+
   model_treated <- suppressWarnings(dsBaseClient::ds.glm(
-    formula     = formula,
-    data        = treated_name,
-    family      = "gaussian",
+    formula    = formula,
+    data       = treated_name,
+    family     = "gaussian",
+    viewVarCov = need_vcov,
     datasources = datasources
   ))
 
   model_control <- suppressWarnings(dsBaseClient::ds.glm(
-    formula     = formula,
-    data        = control_name,
-    family      = "gaussian",
+    formula    = formula,
+    data       = control_name,
+    family     = "gaussian",
+    viewVarCov = need_vcov,
     datasources = datasources
   ))
 
@@ -197,7 +211,8 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     beta0            = beta0,
     alpha1           = alpha1,
     beta1            = beta1,
-    compute_variance = compute_variance
+    compute_variance = compute_variance,
+    heterogeneous    = heterogeneous
   )
 
   n_k   <- local_results$n_k
@@ -226,14 +241,18 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
   }
 
   variance <- .compute_variance(
-    n          = n,
-    n_1        = n_1,
-    rss_k      = local_results$rss_k,
-    s_k_scalar = local_results$s_k_scalar,
-    n_k        = n_k,
-    tau_k      = tau_k,
-    ate_hat    = ate_hat,
-    d          = d
+    n             = n,
+    n_1           = n_1,
+    rss_k         = local_results$rss_k,
+    s_k_scalar    = local_results$s_k_scalar,
+    n_k           = n_k,
+    tau_k         = tau_k,
+    ate_hat       = ate_hat,
+    d             = d,
+    heterogeneous = heterogeneous,
+    vcov_treated  = model_treated$VarCovMatrix,
+    vcov_control  = model_control$VarCovMatrix,
+    X_bar         = local_results$X_bar_sum / n
   )
 
   se       <- sqrt(variance)
@@ -270,7 +289,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 #' @importFrom DSI datashield.aggregate
 .localAte <- function(datasources, base_name, outcome_name, covariate_names,
                       treatment_name, alpha0, beta0, alpha1, beta1,
-                      compute_variance = TRUE) {
+                      compute_variance = TRUE, heterogeneous = FALSE) {
   cally <- call(
     "localAteDS",
     base_name, outcome_name,
@@ -280,7 +299,8 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     paste(as.character(beta0), collapse = ","),
     as.character(alpha1),
     paste(as.character(beta1), collapse = ","),
-    compute_variance
+    compute_variance,
+    heterogeneous
   )
   results <- DSI::datashield.aggregate(conns = datasources, expr = cally)
 
@@ -293,18 +313,35 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     out$s_k_scalar <- vapply(results, `[[`, 1.0, "s_k_scalar")
     out$rss_k      <- vapply(results, `[[`, 1.0, "rss_k")
   }
+  if (compute_variance && heterogeneous) {
+    out$X_bar_sum <- Reduce("+", lapply(results, `[[`, "n_k_X_bar"))
+  }
   out
 }
 
 #' @keywords internal
 #' @noRd
-.compute_variance <- function(n, n_1, rss_k, s_k_scalar, n_k, tau_k, ate_hat, d) {
-  # First term: OLS noise with pooled degrees of freedom = n - 2(d+1)
-  p_hat      <- n_1 / n
+.compute_variance <- function(n, n_1, rss_k, s_k_scalar, n_k, tau_k, ate_hat, d,
+                               heterogeneous = FALSE,
+                               vcov_treated = NULL, vcov_control = NULL,
+                               X_bar = NULL) {
   sigma2_hat <- sum(rss_k) / (n - 2L * (d + 1L))
-  first_term <- sigma2_hat / (n * p_hat * (1 - p_hat))
 
-  # Second term: Δβ̂ᵀ Σ̂ Δβ̂ / n via parallel-axis decomposition.
+  if (heterogeneous) {
+    # ds.glm's VarCovMatrix is the unscaled (G^(w))^{-1} = (X'^(w)T X'^(w))^{-1},
+    # so OLS noise = sigma2_hat * X_bar' (VarCovMatrix_1 + VarCovMatrix_0) X_bar'.
+    X_bar_prime <- c(1, X_bar)
+    first_term  <- sigma2_hat * as.numeric(
+      t(X_bar_prime) %*% (vcov_treated + vcov_control) %*% X_bar_prime
+    )
+  } else {
+    # Homogeneous closed form (Corollary 1) — valid when C = 0,
+    # i.e. when p_k ≡ p or μ_k ≡ μ.
+    p_hat      <- n_1 / n
+    first_term <- sigma2_hat / (n * p_hat * (1 - p_hat))
+  }
+
+  # Covariate-mean uncertainty: Δβ̂ᵀ Σ̂ Δβ̂ / n via parallel-axis decomposition.
   # X̄_k · Δβ̂ − X̄ · Δβ̂ = τ̂_k − τ̂  (the α̂¹ − α̂⁰ terms cancel).
   tss         <- sum(s_k_scalar + n_k * (tau_k - ate_hat)^2)
   second_term <- tss / (n * (n - 1L))

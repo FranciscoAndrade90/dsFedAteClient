@@ -80,7 +80,8 @@ fed <- suppressWarnings(
     outcome_name    = "Y",
     treatment_name  = "W",
     covariate_names = c("X1", "X2"),
-    study_effects   = TRUE
+    study_effects   = TRUE,
+    heterogeneous   = FALSE
   )
 )
 
@@ -165,7 +166,8 @@ fed_unadj <- suppressWarnings(
     outcome_name    = "Y",
     treatment_name  = "W",
     covariate_names = c("X1", "X2"),
-    study_effects   = FALSE
+    study_effects   = FALSE,
+    heterogeneous   = FALSE
   )
 )
 DSI::datashield.logout(conns2)

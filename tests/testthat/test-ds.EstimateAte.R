@@ -180,6 +180,67 @@ test_that(".compute_variance second term is zero when all tau_k equal ate_hat", 
   expect_equal(v_second_zero, first_only, tolerance = 1e-10)
 })
 
+test_that(".compute_variance heterogeneous=TRUE returns a positive finite scalar", {
+  n       <- 100L
+  n_1     <- 50L
+  d       <- 2L
+  rss_k   <- c(10.0, 8.0)
+  s_k     <- c(3.0, 2.5)
+  n_k     <- c(60L, 40L)
+  tau_k   <- c(0.54, 0.46)
+  ate_hat <- sum(n_k * tau_k) / n
+  # vcov_w = (G^w)^{-1} (unscaled), as returned by ds.glm's VarCovMatrix
+  vcov_1  <- (1 / 60) * diag(d + 1L)
+  vcov_0  <- (1 / 40) * diag(d + 1L)
+  X_bar   <- c(0.1, -0.05)
+
+  v <- .compute_variance(n, n_1, rss_k, s_k, n_k, tau_k, ate_hat, d,
+         heterogeneous = TRUE,
+         vcov_treated  = vcov_1,
+         vcov_control  = vcov_0,
+         X_bar         = X_bar)
+  expect_length(v, 1L)
+  expect_gt(v, 0)
+  expect_false(is.na(v))
+  expect_false(is.infinite(v))
+})
+
+test_that(".compute_variance heterogeneous=TRUE Term(I) reduces to homogeneous when delta=0", {
+  # When vcov_w = sigma2_w * (G^w)^{-1} and X_bar = arm means = global mean,
+  # Term(I) = sigma2_hat * X_bar' (G1_inv + G0_inv) X_bar'.
+  # For a simple balanced case with identity Gram (so G^{-1} = I/n^w for a
+  # standardised design), the quadratic form gives sigma2_hat/(n*p*(1-p)).
+  # Here we just verify numerical agreement against the closed-form path.
+  n       <- 200L
+  n_1     <- 100L
+  d       <- 1L
+  rss_k   <- 40.0
+  s_k     <- 0.0
+  n_k     <- 200L
+  tau_k   <- 0.5
+  ate_hat <- 0.5
+
+  sigma2_hat <- rss_k / (n - 2L * (d + 1L))
+  p_hat      <- n_1 / n
+
+  # When G^(w) = n^(w) * I_{d+1} (identity Gram, as for centred orthogonal X),
+  # (G^(w))^{-1} = (1/n^(w)) * I_{d+1} — this is what ds.glm returns as VarCovMatrix.
+  # With X_bar = 0, Lemma 2 gives X_bar' (G1_inv + G0_inv) X_bar' = 1/n_1 + 1/n_0 = 1/(n*p*(1-p)).
+  # So Term I = sigma2_hat / (n * p * (1-p)), recovering the homogeneous closed form.
+  vcov_1  <- (1 / n_1)      * diag(d + 1L)
+  vcov_0  <- (1 / (n - n_1)) * diag(d + 1L)
+  X_bar   <- 0.0
+
+  v_het  <- .compute_variance(n, n_1, rss_k, s_k, n_k, tau_k, ate_hat, d,
+               heterogeneous = TRUE,
+               vcov_treated  = vcov_1,
+               vcov_control  = vcov_0,
+               X_bar         = X_bar)
+  v_hom  <- .compute_variance(n, n_1, rss_k, s_k, n_k, tau_k, ate_hat, d)
+
+  expect_equal(v_het, v_hom, tolerance = 1e-10)
+})
+
 # .check_sample_sizes ----------------------------------------------------------
 
 test_that(".check_sample_sizes warns when an arm is below 5*(d+1)", {
@@ -368,6 +429,95 @@ test_that("ds.EstimateAte study_effects=TRUE with K=1 warns and falls back", {
   # Falls back to unadjusted — should still return a valid result
   expect_named(result, c("ate", "variance", "ci_lower", "ci_upper",
                          "n_total", "n_k", "ate_k"))
+})
+
+# .add_study_id ----------------------------------------------------------------
+
+# heterogeneous = TRUE --------------------------------------------------------
+
+test_that("ds.EstimateAte heterogeneous=TRUE returns a seven-element list", {
+  result <- ds.EstimateAte(
+    datasources     = conns,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    heterogeneous   = TRUE
+  )
+  expect_named(result, c("ate", "variance", "ci_lower", "ci_upper",
+                         "n_total", "n_k", "ate_k"))
+})
+
+test_that("ds.EstimateAte heterogeneous=TRUE ATE is close to the true value of 0.5", {
+  result <- ds.EstimateAte(
+    datasources     = conns,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    heterogeneous   = TRUE
+  )
+  expect_equal(result$ate, 0.5, tolerance = 0.15)
+})
+
+test_that("ds.EstimateAte heterogeneous=TRUE variance is positive and finite", {
+  result <- ds.EstimateAte(
+    datasources     = conns,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    heterogeneous   = TRUE
+  )
+  expect_gt(result$variance, 0)
+  expect_false(is.na(result$variance))
+  expect_false(is.infinite(result$variance))
+})
+
+test_that("ds.EstimateAte heterogeneous=TRUE and FALSE give the same ATE", {
+  r_het <- ds.EstimateAte(
+    datasources     = conns,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    heterogeneous   = TRUE
+  )
+  r_hom <- ds.EstimateAte(
+    datasources     = conns,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    heterogeneous   = FALSE
+  )
+  expect_equal(r_het$ate, r_hom$ate)
+})
+
+test_that("ds.EstimateAte heterogeneous=TRUE with compute_variance=FALSE returns four elements", {
+  result <- ds.EstimateAte(
+    datasources      = conns,
+    base_name        = "study_data",
+    outcome_name     = "Y",
+    treatment_name   = "W",
+    covariate_names  = c("X1", "X2"),
+    heterogeneous    = TRUE,
+    compute_variance = FALSE
+  )
+  expect_named(result, c("ate", "n_total", "n_k", "ate_k"))
+})
+
+test_that("ds.EstimateAte heterogeneous=TRUE CI contains the true ATE", {
+  result <- ds.EstimateAte(
+    datasources     = conns,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    heterogeneous   = TRUE
+  )
+  expect_lt(result$ci_lower, 0.5)
+  expect_gt(result$ci_upper, 0.5)
 })
 
 # .add_study_id ----------------------------------------------------------------

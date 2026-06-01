@@ -61,7 +61,8 @@ fed <- suppressWarnings(
                  base_name       = "study_data",
                  outcome_name    = "Y",
                  treatment_name  = "W",
-                 covariate_names = c("X1", "X2"))
+                 covariate_names = c("X1", "X2"),
+                 heterogeneous   = FALSE)
 )
 
 DSI::datashield.logout(conns)

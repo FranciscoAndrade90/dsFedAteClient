@@ -235,11 +235,12 @@ outcome_name <- "Y"                    # Outcome variable
 treatment_name <- "W"                  # Treatment variable
 covariate_names <- paste0("X", 1:d)    # Covariates X1, X2, ..., Xd
 federated_ate <- ds.EstimateAte(
-  datasources = conns,
-  base_name = base_name,
-  outcome_name = outcome_name,
-  treatment_name = treatment_name,
-  covariate_names = covariate_names
+  datasources     = conns,
+  base_name       = base_name,
+  outcome_name    = outcome_name,
+  treatment_name  = treatment_name,
+  covariate_names = covariate_names,
+  heterogeneous   = FALSE
 )
 ```
 
@@ -354,7 +355,8 @@ ds.EstimateAte(
   base_name       = "base",
   outcome_name    = outcome_name,
   treatment_name  = treatment_name,
-  covariate_names = covariate_names
+  covariate_names = covariate_names,
+  heterogeneous   = FALSE
 )
 ```
 
@@ -388,7 +390,8 @@ federated_ate_2 <- ds.EstimateAte(
   base_name       = "base",
   outcome_name    = outcome_name,
   treatment_name  = treatment_name,
-  covariate_names = covariate_names
+  covariate_names = covariate_names,
+  heterogeneous   = FALSE
 )
 ```
 
@@ -432,6 +435,203 @@ isTRUE(all.equal(pooled_ate_2, federated_ate_2$ate))
 
 ```{r, eval = TRUE}
 DSI::datashield.logout(conns_2)
+```
+
+## Example 3 — Study effects
+
+In practice, RCTs conducted at different institutions often exhibit systematic differences in their baseline outcome levels. These **study effects** can arise from variations in patient populations, clinical protocols, outcome measurement procedures, or unobserved centre-level factors. This example reproduces the simulation setting of Appendix C.4 of @khellaf2025, which introduces such effects and examines their impact on federated ATE estimation.
+
+The key challenge is that when study effects coexist with heterogeneous treatment probabilities across centres, the study membership variable $H$ becomes a confounder between treatment $W$ and outcome $Y$: centres with high $p_k$ will have more treated observations *and* systematically different outcomes if $h_k$ is large. In this setting, unadjusted federated estimators — including the standard GD estimator — are biased. We first demonstrate this bias, then show how passing `study_effects = TRUE` to `ds.EstimateAte()` removes it by augmenting the design matrix with study membership dummies, implementing the adjusted GD estimator ($\hat\tau_{\mathrm{GD_o}}$) of @khellaf2025 (Definition 9).
+
+### Mathematical Formulation
+
+The data-generating model extends the linear potential-outcome framework of Example 1 by adding a study-specific intercept $h_k \in \mathbb{R}$ to both potential outcomes:
+$$Y_{k,i}(w) = c^{(w)} + h_k + X_{k,i}^\top\beta^{(w)} + \varepsilon_{k,i}(w), \qquad \varepsilon_{k,i}(w) \stackrel{\mathrm{iid}}{\sim} \mathcal{N}(0, \sigma^2).$$
+Because $h_k$ appears identically in both arms, it cancels in the individual treatment effect $Y^{(1)} - Y^{(0)}$, and the ATE remains:
+$$\tau^\star = (c^{(1)} - c^{(0)}) + (\beta^{(1)} - \beta^{(0)})^\top\mu_X = -1.1.$$
+
+**Confounding.** As depicted in Figure 3 of @khellaf2025, the graphical model now contains a directed path $H \to W$ (through $p_k$) alongside $H \to Y$ (through $h_k$), making $H$ a confounder. The unadjusted pooled estimator is biased whenever $p_k$ are not equal across studies (Appendix B.4.1 of @khellaf2025): the regression on the treatment arm conflates the arm-specific sample composition with the treatment effect.
+
+**Adjusted GD estimator.** The bias is removed by augmenting each server's design matrix with $K - 1$ integer study-dummy columns $(H_2, \ldots, H_K)$, where $H_{k,j} = \mathbf{1}\{k = j\}$. The arm-specific linear regressions are fitted on the extended matrix $\tilde{X}_{k,i} = (1, X_{k,i}, H_{2,k,i}, \ldots, H_{K,k,i})$, absorbing the $h_k$ shifts. The resulting adjusted GD estimator is unbiased and achieves the same asymptotic variance as the unadjusted GD estimator — the $h_k$ terms cancel exactly in $\hat\theta^{(1)} - \hat\theta^{(0)}$ and do not inflate the variance (Appendix B.4.2 of @khellaf2025).
+
+### Parameters
+
+All model parameters are identical to Example 1 except for the addition of the study effects $\{h_k\}$ and imbalanced treatment probabilities, matching Appendix C.4 of @khellaf2025.
+
+```{r, eval = TRUE}
+set.seed(123)
+
+# Parameters (same as Example 1)
+K           <- 5
+d           <- 10
+n_per_study <- 20 * d
+sigma_noise <- 1.0
+alpha_0     <- -2
+alpha_1     <- -1.85
+beta_1      <- seq(-1.75, 0.5,  by = 0.25)
+beta_0      <- seq(-1.8,  0.0,  by = 0.2)
+mu_X        <- c(rep(1, d %/% 2), rep(-1, d %/% 2))
+I_d         <- diag(d)
+J           <- matrix(1, nrow = d, ncol = d)
+Sigma_X     <- 0.5 * I_d + 0.5 * J
+
+# Study effects — Appendix C.4
+h_k         <- c(1, 2, -1, 30, 2)
+
+# Imbalanced treatment probabilities — Large regime of Appendix C.4
+p_treatment_3 <- c(0.9, 0.9, 0.9, 0.1, 0.1)
+```
+
+The true ATE is unchanged, since $h_k$ cancels in the difference of potential outcomes:
+
+```{r, eval = TRUE}
+true_ATE <- (alpha_1 - alpha_0) + sum(mu_X * (beta_1 - beta_0))
+print(true_ATE)
+```
+
+### Data Generation
+
+```{r, eval = TRUE}
+data_list_3 <- vector("list", K)
+for (k in 1:K) {
+  X_k <- mvrnorm(n = n_per_study, mu = mu_X, Sigma = Sigma_X)
+  W_k <- rbinom(n = n_per_study, size = 1, prob = p_treatment_3[k])
+
+  Y_0   <- alpha_0 + h_k[k] + X_k %*% beta_0 + rnorm(n_per_study, sd = sigma_noise)
+  Y_1   <- alpha_1 + h_k[k] + X_k %*% beta_1 + rnorm(n_per_study, sd = sigma_noise)
+  Y_obs <- W_k * Y_1 + (1 - W_k) * Y_0
+
+  data_list_3[[k]] <- data.frame(
+    subject_id = 1:n_per_study, W = W_k, Y = as.vector(Y_obs), X_k
+  )
+  colnames(data_list_3[[k]]) <- c("subject_id", "W", "Y", paste0("X", 1:d))
+}
+```
+
+### DSLite Setup
+
+We use permissive privacy settings because the extreme treatment probabilities ($p = 0.9$ or $p = 0.1$) produce very small arm-specific samples at some centres, which would otherwise be blocked by the default `nfilter.glm` threshold. The interaction between privacy settings and estimation was already illustrated in Example 2.
+
+```{r, eval = TRUE}
+options(
+  datashield.privacyControlLevel = "permissive",
+  nfilter.glm                    = 1.0
+)
+
+for (k in 1:K) {
+  server_name <- paste0("dslite.server3_", k)
+  server_obj  <- DSLite::newDSLiteServer(tables = list(study_data = data_list_3[[k]]))
+  server_obj$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  server_obj$aggregateMethod("localAteDS", "localAteDS")
+  server_obj$assignMethod("addStudyIdDS", "addStudyIdDS")
+  assign(server_name, server_obj, envir = .GlobalEnv)
+}
+
+builder3 <- DSI::newDSLoginBuilder()
+for (k in 1:K) {
+  builder3$append(
+    server = paste0("study", k),
+    url    = paste0("dslite.server3_", k),
+    table  = "study_data",
+    driver = "DSLiteDriver"
+  )
+}
+conns_3 <- DSI::datashield.login(logins = builder3$build(), assign = FALSE)
+DSI::datashield.assign.table(conns = conns_3, table = "study_data", symbol = "base")
+```
+
+### Unadjusted Estimation — Bias Under Study Effects
+
+Without adjustment, the unadjusted GD estimator conflates the treatment effect with the study-level intercept shifts. Centre 4 has both a very large study effect ($h_4 = 30$) and a low treatment probability ($p_4 = 0.1$): most of its observations are controls, making the treatment arm appear systematically different in ways that are entirely explained by the study effect rather than by the treatment itself.
+
+```{r, results = 'hide', message = FALSE}
+federated_ate_unadj <- ds.EstimateAte(
+  datasources     = conns_3,
+  base_name       = "base",
+  outcome_name    = outcome_name,
+  treatment_name  = treatment_name,
+  covariate_names = covariate_names,
+  study_effects   = FALSE,
+  heterogeneous   = FALSE
+)
+```
+
+```{r, eval = TRUE}
+cat(sprintf("Unadjusted ATE: %.4f   bias: %.4f   (true ATE: %.4f)\n",
+            federated_ate_unadj$ate,
+            federated_ate_unadj$ate - true_ATE,
+            true_ATE))
+```
+
+The bias is substantial: the unadjusted estimator departs markedly from the true ATE of $-1.1$.
+
+### Adjusted Estimation — Accounting for Study Effects
+
+Setting `study_effects = TRUE` instructs `ds.EstimateAte()` to call `addStudyIdDS()` on each server, which appends $K - 1 = 4$ binary columns (`study_id2`, ..., `study_id5`) to the local data frame. The arm-specific GLMs are then fitted on the augmented design matrix $(1, X_1, \ldots, X_{10}, H_2, \ldots, H_5)$, absorbing the $h_k$ shifts and removing the confounding. No individual-level data are shared at any point.
+
+```{r, results = 'hide', message = FALSE}
+federated_ate_adj <- ds.EstimateAte(
+  datasources     = conns_3,
+  base_name       = "base",
+  outcome_name    = outcome_name,
+  treatment_name  = treatment_name,
+  covariate_names = covariate_names,
+  study_effects   = TRUE,
+  heterogeneous   = FALSE
+)
+```
+
+```{r, eval = TRUE}
+cat(sprintf("Adjusted ATE: %.4f  SE: %.4f  95%% CI: [%.4f, %.4f]  True ATE: %.4f\n",
+            federated_ate_adj$ate, sqrt(federated_ate_adj$variance),
+            federated_ate_adj$ci_lower, federated_ate_adj$ci_upper, true_ATE))
+```
+
+The adjusted estimator is close to the true ATE of $-1.1$, confirming that conditioning on study membership removes the bias. The confidence interval covers the true value.
+
+### Comparison with the Pooled Adjusted Estimator
+
+We verify that the federated adjusted estimator recovers exactly the same ATE as the centralised analysis on the augmented design matrix — a consequence of the pooling property of the GD estimator (Theorem 1 of @khellaf2025).
+
+```{r, eval = TRUE}
+# Augment pooled data with study dummy columns (study 1 is the reference)
+pooled_data_3 <- do.call(rbind, data_list_3)
+study_ids     <- rep(1:K, each = n_per_study)
+for (j in 2:K) {
+  pooled_data_3[[paste0("study_id", j)]] <- as.integer(study_ids == j)
+}
+
+cov_names_adj <- c(covariate_names, paste0("study_id", 2:K))
+formula_adj   <- paste0(outcome_name, " ~ ", paste(cov_names_adj, collapse = " + "))
+
+pooled_treated_3 <- pooled_data_3[pooled_data_3$W == 1, ]
+pooled_control_3 <- pooled_data_3[pooled_data_3$W == 0, ]
+
+model_treated_3 <- glm(formula = formula_adj, family = gaussian, data = pooled_treated_3)
+model_control_3 <- glm(formula = formula_adj, family = gaussian, data = pooled_control_3)
+
+coef_treated_3 <- model_treated_3$coefficients
+coef_control_3 <- model_control_3$coefficients
+
+alpha1_3 <- coef_treated_3["(Intercept)"]
+alpha0_3 <- coef_control_3["(Intercept)"]
+beta1_3  <- coef_treated_3[cov_names_adj]
+beta0_3  <- coef_control_3[cov_names_adj]
+
+tau_diff_3   <- alpha1_3 - alpha0_3
+gamma_diff_3 <- beta1_3 - beta0_3
+
+X_mat_3      <- as.matrix(pooled_data_3[, cov_names_adj, drop = FALSE])
+x_bar_3      <- colMeans(X_mat_3, na.rm = TRUE)
+pooled_ate_3 <- as.numeric(tau_diff_3 + sum(x_bar_3 * gamma_diff_3))
+```
+
+```{r, eval = TRUE}
+isTRUE(all.equal(pooled_ate_3, federated_ate_adj$ate))
+```
+
+```{r, eval = TRUE}
+DSI::datashield.logout(conns_3)
 ```
 
 ## References

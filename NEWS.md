@@ -1,5 +1,33 @@
 # dsRctFedClient 0.0.0.9000
 
+## New features
+
+* `ds.EstimateAte()` gains a `heterogeneous` argument (default `TRUE`)
+  implementing the leverage-corrected asymptotic variance under full
+  heterogeneity (covariate shift `H → X` *and* heterogeneous treatment
+  assignment `H → W`).  When `TRUE` and `compute_variance = TRUE`:
+  - Both `ds.glm()` calls are made with `viewVarCov = TRUE` to obtain the
+    pooled per-arm variance–covariance matrices `VarCovMatrix^(w)`.
+  - Each server returns its covariate column sums `n_k * X̄_k` via the new
+    `heterogeneous` argument of `localAteDS()`.  The client sums these to form
+    the global covariate mean `X̄`, then augments it to `X̄' = (1, X̄ᵀ)ᵀ`.
+  - Term (I) of the variance is computed via eq. (15) of the companion variance
+    paper rather than the homogeneous closed form:
+    `Î = σ̂² * X̄'ᵀ (VarCovMatrix¹ + VarCovMatrix⁰) X̄'`,
+    where `VarCovMatrix^(w)` is the unscaled Gram inverse `(G^(w))⁻¹` returned
+    by `ds.glm(viewVarCov = TRUE)`.  This automatically
+    carries the leverage correction `δ^(w) ≥ 0` (Lemma 2 of the companion
+    variance paper) and is algebraically identical to the centralised plug-in
+    variance (Proposition 2).
+  - Term (II) and `σ̂²` are unchanged.
+  - When `compute_variance = FALSE`, the argument has no effect.
+  - Works uniformly when combined with `study_effects = TRUE`: the augmented
+    covariate mean `X̄ = (X̄_X, ρ̂)` (including the study-proportion D-block)
+    is obtained from the same `n_k_X_bar` scalars without any additional
+    communication round.
+
+---
+
 ## Breaking changes
 
 * `ds.EstimateAte()` now returns a named list instead of a single numeric

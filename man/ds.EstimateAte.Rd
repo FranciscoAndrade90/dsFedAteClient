@@ -11,7 +11,8 @@ ds.EstimateAte(
   treatment_name,
   covariate_names,
   compute_variance = TRUE,
-  study_effects = FALSE
+  study_effects = FALSE,
+  heterogeneous = TRUE
 )
 }
 \arguments{
@@ -28,22 +29,38 @@ indicator.}
 
 \item{covariate_names}{A character vector of covariate names.}
 
-\item{compute_variance}{Logical. If \code{TRUE} (default), each server also
-returns the residual sum of squares and projected scatter scalar needed for
-the delta-method variance and 95\\% confidence interval.  Set to
-\code{FALSE} to request only the point estimate, minimizing the
-information disclosed by each server.}
+\item{compute_variance}{Logical. If \code{TRUE} (default), each server
+returns additional statistics beyond the point estimate (residual sum of
+squares and projected scatter scalar), and — when \code{heterogeneous = TRUE}
+— the per-arm Gram inverses are obtained by calling \code{ds.glm} with
+\code{viewVarCov = TRUE}, and each server additionally returns covariate
+column sums.  All of this constitutes an extra disclosure step.  Set to
+\code{FALSE} to request only the point estimate and minimise the
+information shared by each server.}
 
-\item{study_effects}{Logical. If \code{FALSE} (default), the homogeneous
-model is assumed (Definition 8 of Khellaf et al., 2025).  If \code{TRUE},
-the adjusted GD estimator (Definition 9 of Khellaf et al., 2025) is used:
-\code{addStudyIdDS()} appends K-1 integer dummy columns
+\item{study_effects}{Logical. If \code{FALSE} (default), the no-study-effects
+model is assumed (potential outcome model (2) of Khellaf et al., 2025):
+there is no arrow H -> Y in the DAG, meaning study membership does not
+directly shift the outcome.  If \code{TRUE}, the study-effects model is
+used (potential outcome model (16) of Khellaf et al., 2025): an arrow
+H -> Y is present, so site-specific intercept shifts confound the estimate
+when treatment probabilities also vary across sites.  \code{addStudyIdDS()} appends K-1 integer dummy columns
 (\code{study_id2}, \ldots, \code{study_idK}) to each server's data frame,
-and the federated GLMs are fitted on the augmented design matrix.  The
-asymptotic variance is identical to the unadjusted case (Appendix B.4.2
-of Khellaf et al., 2025); the degrees of freedom adjust from
-\eqn{n - 2(d+1)} to \eqn{n - 2(d+K)} automatically.  Has no effect and
+and the federated GLMs are fitted on the augmented design matrix, absorbing
+the shifts.  The asymptotic variance is identical to the no-study-effects
+case (Appendix B.4.2 of Khellaf et al., 2025); the degrees of freedom
+adjust from n - 2(d+1) to n - 2(d+K) automatically.  Has no effect and
 emits a warning when only one datasource is present.}
+
+\item{heterogeneous}{Logical. If \code{TRUE} (default), the leverage-corrected
+OLS noise component of the variance is computed from the per-arm Gram inverses returned by
+\code{ds.glm(viewVarCov = TRUE)}, using the global covariate mean assembled
+from per-server column sums returned by \code{localAteDS()}.  This is valid
+under full heterogeneity (different covariate distributions and treatment
+probabilities across sites) and is algebraically identical to the
+centralised plug-in variance.  Set to \code{FALSE} to use the simpler homogeneous closed form,
+which is exact only when treatment probabilities or covariate means are
+constant across sites.  Has no effect when \code{compute_variance = FALSE}.}
 }
 \value{
 When \code{compute_variance = TRUE}, a named list with seven
@@ -87,15 +104,9 @@ symbols persist in the server workspace after the function returns,
 consistent with standard DataSHIELD practice.  The caller's original
 \code{base_name} object is never modified.
 
-When \code{compute_variance = TRUE} (the default), the variance estimator
-has two components:
-\enumerate{
-\item OLS noise: \eqn{\hat\sigma^2 / (n\,\hat p(1-\hat p))}, where
-\eqn{\hat\sigma^2} uses the pooled df \eqn{n - 2(d+1)}.
-\item Covariate-mean uncertainty:
-\eqn{\Delta\hat\beta^\top\hat\Sigma\Delta\hat\beta / n}, pooled from
-per-server scatter scalars.
-}
+When \code{compute_variance = TRUE} (the default), a delta-method variance
+estimate and 95\\% confidence interval are also returned.  The formula used
+depends on the \code{heterogeneous} argument; see below.
 }
 \examples{
 \dontrun{

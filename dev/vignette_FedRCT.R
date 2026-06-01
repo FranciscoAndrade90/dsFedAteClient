@@ -105,7 +105,8 @@ federated_ate <- ds.EstimateAte(
   base_name       = base_name,
   outcome_name    = outcome_name,
   treatment_name  = treatment_name,
-  covariate_names = covariate_names
+  covariate_names = covariate_names,
+  heterogeneous   = FALSE
 )
 
 # Pooled (centralised) estimator for comparison --------------------------------
