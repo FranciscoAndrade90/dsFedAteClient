@@ -450,7 +450,7 @@ assignment $W$.
 
 The GD estimator and the federated/pooled equivalence remain valid under distributional
 shift. However, the homogeneous variance formula of Example 1 relies on the assumption
-that $p_k$ and $\mu_k$ are constant across sites and is no longer appropriate here.
+that  $\mu_k$ is constant across sites and is no longer appropriate here.
 The correct variance estimator uses the per-arm Gram matrix inverses returned by
 `ds.glm(viewVarCov = TRUE)`, activated by passing `heterogeneous = TRUE` to
 `ds.EstimateAte()`.
@@ -482,11 +482,11 @@ mixing proportions $\alpha_k^\star = P(H = k)$:
 $$\tau^\star = \sum_{k=1}^K \alpha_k^\star\,\tau_k^\star
 = (\alpha_1 - \alpha_0) + (\beta_1 - \beta_0)^\top\bar\mu,
 \qquad \bar\mu = \sum_k \alpha_k^\star\,\mu_k.$$
-In practice $\alpha_k^\star$ is unknown and estimated by $n_k/n$, so the GD estimator
-targets $\hat\tau = \sum_k (n_k/n)\,\hat\tau_k$.
+In practice $\alpha_k^\star$ is unknown and estimated by $n_k/n$, so we consider the estimator
+ $\hat\tau = \sum_k (n_k/n)\,\hat\tau_k$.
 
-**Variance estimation.** Under distributional shift, the correct asymptotic variance
-of $\hat\tau_{\mathrm{GD}}$ (Table 1 of @khellaf2025) is:
+**Variance estimation.** Under distributional shift, the  asymptotic variance
+of $\hat\tau$  is:
 $$\hat{V}(\hat\tau) = \underbrace{\bar{X}^{\prime\top}\!\left(\widehat{\mathrm{Cov}}(\hat\theta^{(1)}) +
 \widehat{\mathrm{Cov}}(\hat\theta^{(0)})\right)\!\bar{X}^{\prime}}_{\text{OLS noise}} +
 \underbrace{\frac{\Delta\hat\beta^\top\hat\Sigma\Delta\hat\beta}{n}}_{\text{covariate scatter}},$$
@@ -501,8 +501,7 @@ Example 1.
 
 **Shared information.** Two additional disclosure steps are required relative to
 Example 1. First, `ds.glm(viewVarCov = TRUE)` makes each server return the $(d+1)\times(d+1)$
-scaled variance–covariance matrix of the arm-specific GLM coefficients; the client uses
-these to assemble the Gram inverses $\hat{G}^{(w)-1}$. Second, `localAteDS` with
+scaled variance–covariance matrix of the arm-specific GLM coefficients. Second, `localAteDS` with
 `heterogeneous = TRUE` returns the column sums $n_k\bar{X}_k$ of the covariate matrix,
 which the client aggregates to form the global covariate mean $\bar{X}$. No individual-level
 data are transmitted in either step.
@@ -616,7 +615,7 @@ DSI::datashield.assign.table(conns = conns_het, table = "study_data", symbol = "
 
 ### Federated Estimation of the ATE
 
-We pass `heterogeneous = TRUE` to use the Gram-inverse-based variance formula, which is appropriate here because the covariate distributions differ across centers.
+We pass `heterogeneous = TRUE` to use the OLS covariance-based variance formula, which is appropriate here because the covariate distributions differ across centers.
 
 ```{r, results = 'hide', message = FALSE}
 federated_ate_het <- ds.EstimateAte(
@@ -819,7 +818,7 @@ federated_ate_unadj <- ds.EstimateAte(
   treatment_name  = treatment_name,
   covariate_names = covariate_names,
   study_effects   = FALSE,
-  heterogeneous   = FALSE
+  heterogeneous   = TRUE
 )
 ```
 
