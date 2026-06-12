@@ -2,6 +2,23 @@
 
 ## New features
 
+* `ds.EstimateAte()` now supports variance estimation for binary outcomes
+  (`outcome_type = "binary"`, `compute_variance = TRUE`). The delta-method
+  variance has two components:
+  - *Parameter estimation*: **g**₁ᵀ **H**₁⁻¹ **g**₁ + **g**₀ᵀ **H**₀⁻¹ **g**₀,
+    where **H**_w⁻¹ = `ds.glm(viewVarCov = TRUE)$VarCovMatrix` (the per-arm
+    pooled variance–covariance matrix, equal to H_w⁻¹ for binomial dispersion = 1)
+    and **g**_w is the gradient of τ̂ w.r.t. θ_w, assembled from unnormalised
+    gradient sums returned by `localAteDS`.
+  - *Sampling*: Var(δᵢ)/n where δᵢ = μ̂₁(xᵢ) − μ̂₀(xᵢ), pooled from per-site
+    scatter scalars via the parallel-axis theorem.
+  The per-arm Fisher information matrices are obtained from `ds.glm` rather
+  than assembled from per-site disclosures, minimising server-side output.
+  Verified at machine precision (ATE diff < 1e-10, variance diff < 1e-10)
+  against the manual pooled formula using the same federated coefficients across
+  K = 3 heterogeneous sites. The `heterogeneous` argument has no effect for
+  binary outcomes — the formula is automatically valid under covariate shift.
+
 * `ds.EstimateAte()` gains a `heterogeneous` argument (default `TRUE`)
   implementing the leverage-corrected asymptotic variance under full
   heterogeneity (covariate shift `H → X` *and* heterogeneous treatment

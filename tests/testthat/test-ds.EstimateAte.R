@@ -522,6 +522,207 @@ test_that("ds.EstimateAte heterogeneous=TRUE CI contains the true ATE", {
 
 # .add_study_id ----------------------------------------------------------------
 
+# outcome_type = "binary" ------------------------------------------------------
+
+conns_bin <- setupDSLiteBinary()
+
+test_that("ds.EstimateAte binary returns four-element list", {
+  result <- ds.EstimateAte(
+    datasources      = conns_bin,
+    base_name        = "study_data",
+    outcome_name     = "Y",
+    treatment_name   = "W",
+    covariate_names  = c("X1", "X2"),
+    outcome_type     = "binary",
+    compute_variance = FALSE
+  )
+  expect_named(result, c("ate", "n_total", "n_k", "ate_k"))
+})
+
+test_that("ds.EstimateAte binary ATE is a finite value in (-1, 1)", {
+  result <- ds.EstimateAte(
+    datasources      = conns_bin,
+    base_name        = "study_data",
+    outcome_name     = "Y",
+    treatment_name   = "W",
+    covariate_names  = c("X1", "X2"),
+    outcome_type     = "binary",
+    compute_variance = FALSE
+  )
+  expect_false(is.na(result$ate))
+  expect_gt(result$ate, -1)
+  expect_lt(result$ate,  1)
+})
+
+test_that("ds.EstimateAte binary with compute_variance=TRUE returns seven elements", {
+  result <- ds.EstimateAte(
+    datasources      = conns_bin,
+    base_name        = "study_data",
+    outcome_name     = "Y",
+    treatment_name   = "W",
+    covariate_names  = c("X1", "X2"),
+    outcome_type     = "binary",
+    compute_variance = TRUE
+  )
+  expect_named(result, c("ate", "variance", "ci_lower", "ci_upper",
+                         "n_total", "n_k", "ate_k"))
+})
+
+test_that("ds.EstimateAte binary variance is positive and finite", {
+  result <- ds.EstimateAte(
+    datasources      = conns_bin,
+    base_name        = "study_data",
+    outcome_name     = "Y",
+    treatment_name   = "W",
+    covariate_names  = c("X1", "X2"),
+    outcome_type     = "binary",
+    compute_variance = TRUE
+  )
+  expect_gt(result$variance, 0)
+  expect_false(is.na(result$variance))
+  expect_false(is.infinite(result$variance))
+})
+
+test_that("ds.EstimateAte binary CI half-width equals 1.96 * sqrt(variance)", {
+  result <- ds.EstimateAte(
+    datasources      = conns_bin,
+    base_name        = "study_data",
+    outcome_name     = "Y",
+    treatment_name   = "W",
+    covariate_names  = c("X1", "X2"),
+    outcome_type     = "binary",
+    compute_variance = TRUE
+  )
+  expect_equal(result$ate - result$ci_lower, 1.96 * sqrt(result$variance),
+               tolerance = 1e-10)
+})
+
+test_that("ds.EstimateAte binary n_total matches data size", {
+  result <- ds.EstimateAte(
+    datasources      = conns_bin,
+    base_name        = "study_data",
+    outcome_name     = "Y",
+    treatment_name   = "W",
+    covariate_names  = c("X1", "X2"),
+    outcome_type     = "binary",
+    compute_variance = FALSE
+  )
+  expect_equal(result$n_total, 200L)
+  expect_equal(sum(result$n_k), result$n_total)
+})
+
+# .compute_variance_binary -----------------------------------------------------
+
+make_binary_inputs <- function() {
+  set.seed(99)
+  n      <- 100L
+  n_k    <- c(60L, 40L)
+  alpha1 <- 0.5;  alpha0 <- 0.0
+  beta1  <- c(0.4, -0.2);  beta0 <- c(0.3, -0.1)
+
+  make_site_data <- function(nk) {
+    X   <- cbind(rnorm(nk), rnorm(nk))
+    W   <- rbinom(nk, 1, 0.5)
+    mu1 <- as.numeric(plogis(alpha1 + X %*% beta1))
+    mu0 <- as.numeric(plogis(alpha0 + X %*% beta0))
+    list(X = X, W = W, mu1 = mu1, mu0 = mu0)
+  }
+  sites <- lapply(n_k, make_site_data)
+
+  # Aggregate Hessians for vcov (sum over sites, then invert)
+  H1_total <- H0_total <- matrix(0, 3L, 3L)
+  g1_raw_k <- g0_raw_k <- vector("list", 2L)
+  s_k_delta <- numeric(2L)
+  tau_k     <- numeric(2L)
+
+  for (k in seq_along(sites)) {
+    s    <- sites[[k]]
+    Xt   <- cbind(1, s$X)
+    v1   <- s$mu1 * (1 - s$mu1)
+    v0   <- s$mu0 * (1 - s$mu0)
+    idx1 <- s$W == 1L
+    H1_total      <- H1_total + crossprod(Xt[ idx1, ], v1[ idx1] * Xt[ idx1, ])
+    H0_total      <- H0_total + crossprod(Xt[!idx1, ], v0[!idx1] * Xt[!idx1, ])
+    g1_raw_k[[k]] <- colSums(v1 * Xt)
+    g0_raw_k[[k]] <- colSums(v0 * Xt)
+    delta_i       <- s$mu1 - s$mu0
+    tau_k[k]      <- mean(delta_i)
+    s_k_delta[k]  <- sum((delta_i - tau_k[k])^2)
+  }
+  ate_hat      <- sum(n_k * tau_k) / n
+  vcov_treated <- solve(H1_total)
+  vcov_control <- solve(H0_total)
+
+  list(n = n, n_k = n_k, tau_k = tau_k, ate_hat = ate_hat,
+       vcov_treated = vcov_treated, vcov_control = vcov_control,
+       g1_raw_k = g1_raw_k, g0_raw_k = g0_raw_k,
+       s_k_delta = s_k_delta)
+}
+
+test_that(".compute_variance_binary returns a positive finite scalar", {
+  inp <- make_binary_inputs()
+  v   <- .compute_variance_binary(
+    n            = inp$n,
+    n_k          = inp$n_k,
+    tau_k        = inp$tau_k,
+    ate_hat      = inp$ate_hat,
+    vcov_treated = inp$vcov_treated,
+    vcov_control = inp$vcov_control,
+    g1_raw_k     = inp$g1_raw_k,
+    g0_raw_k     = inp$g0_raw_k,
+    s_k_delta    = inp$s_k_delta
+  )
+  expect_length(v, 1L)
+  expect_gt(v, 0)
+  expect_false(is.na(v))
+  expect_false(is.infinite(v))
+})
+
+test_that(".compute_variance_binary matches manual pooled formula (single site)", {
+  # Single site: vcov comes from glm(), which equals H^{-1} for binomial.
+  # This mirrors the ds.glm(viewVarCov=TRUE) path used in production.
+  set.seed(7)
+  n  <- 100L
+  X  <- cbind(rnorm(n), rnorm(n))
+  W  <- rbinom(n, 1, 0.5)
+  df <- data.frame(
+    Y  = rbinom(n, 1, plogis(-0.2 + X %*% c(0.4, -0.2))),
+    W  = W, X1 = X[, 1], X2 = X[, 2]
+  )
+  fit1 <- glm(Y ~ X1 + X2, data = df[df$W == 1, ], family = binomial)
+  fit0 <- glm(Y ~ X1 + X2, data = df[df$W == 0, ], family = binomial)
+
+  Xt  <- cbind(1, X)
+  mu1 <- as.numeric(plogis(Xt %*% coef(fit1)))
+  mu0 <- as.numeric(plogis(Xt %*% coef(fit0)))
+  v1  <- mu1 * (1 - mu1)
+  v0  <- mu0 * (1 - mu0)
+  delta <- mu1 - mu0
+  ate   <- mean(delta)
+
+  g1 <-  colMeans(v1 * Xt)
+  g0 <- -colMeans(v0 * Xt)
+
+  v_manual <- as.numeric(
+    crossprod(g1, vcov(fit1) %*% g1) + crossprod(g0, vcov(fit0) %*% g0)
+  ) + var(delta) / n
+
+  v_helper <- .compute_variance_binary(
+    n            = n,
+    n_k          = n,
+    tau_k        = ate,
+    ate_hat      = ate,
+    vcov_treated = vcov(fit1),
+    vcov_control = vcov(fit0),
+    g1_raw_k     = list(colSums(v1 * Xt)),
+    g0_raw_k     = list(colSums(v0 * Xt)),
+    s_k_delta    = sum((delta - ate)^2)
+  )
+  expect_equal(v_helper, v_manual, tolerance = 1e-10)
+})
+
+# .add_study_id ----------------------------------------------------------------
+
 test_that(".add_study_id creates a new object with study_id2 and study_id3, leaving original unchanged", {
   .add_study_id(conns_se, "study_data", length(conns_se), "study_data_adj_test")
   adj_cols  <- dsBaseClient::ds.colnames("study_data_adj_test", datasources = conns_se)

@@ -12,7 +12,8 @@ ds.EstimateAte(
   covariate_names,
   compute_variance = TRUE,
   study_effects = FALSE,
-  heterogeneous = TRUE
+  heterogeneous = TRUE,
+  outcome_type = "continuous"
 )
 }
 \arguments{
@@ -61,6 +62,16 @@ probabilities across sites) and is algebraically identical to the
 centralised plug-in variance.  Set to \code{FALSE} to use the simpler homogeneous closed form,
 which is exact only when treatment probabilities or covariate means are
 constant across sites.  Has no effect when \code{compute_variance = FALSE}.}
+
+\item{outcome_type}{A character string, either \code{"continuous"} (default)
+or \code{"binary"}. Controls the family used in \code{ds.glm}
+(\code{"gaussian"} vs \code{"binomial"}) and the ATE formula in
+\code{localAteDS} (linear projection vs G-computation). When
+\code{"binary"} and \code{compute_variance = TRUE}, a delta-method
+variance is returned using the local Fisher information matrices and
+gradient vectors from each site; the \code{heterogeneous} argument has
+no effect for binary outcomes (the Hessian-based formula handles
+heterogeneity automatically).}
 }
 \value{
 When \code{compute_variance = TRUE}, a named list with seven

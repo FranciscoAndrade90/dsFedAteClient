@@ -125,3 +125,40 @@ setupDSLiteStudyEffects <- function() {
                                table = "study_data")
   return(conns)
 }
+
+# Binary outcome setup ---------------------------------------------------------
+
+setupDSLiteBinary <- function() {
+  set.seed(42)
+  n          <- 200
+  study_data <- data.frame(
+    W  = rbinom(n, 1, 0.5),
+    X1 = rnorm(n),
+    X2 = rnorm(n)
+  )
+  lp         <- 1.0 + 0.3 * study_data$X1 - 0.2 * study_data$X2
+  study_data$Y <- rbinom(n, 1, plogis(lp))
+
+  dslite.server.bin <- DSLite::newDSLiteServer(
+    tables = list(study_data = study_data)
+  )
+  assign("dslite.server.bin", dslite.server.bin, envir = .GlobalEnv)
+  options(datashield.env = .GlobalEnv)
+
+  dslite.server.bin$config(defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  dslite.server.bin$aggregateMethod("localAteDS",                        "localAteDS")
+  dslite.server.bin$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
+  dslite.server.bin$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")
+  dslite.server.bin$assignMethod("addStudyIdDS",                         "addStudyIdDS")
+
+  builder <- DSI::newDSLoginBuilder()
+  builder$append(
+    server = "server_1",
+    url    = "dslite.server.bin",
+    table  = "study_data",
+    driver = "DSLiteDriver"
+  )
+  conns <- DSI::datashield.login(logins = builder$build(), assign = FALSE)
+  DSI::datashield.assign.table(conns = conns, symbol = "study_data", table = "study_data")
+  return(conns)
+}
