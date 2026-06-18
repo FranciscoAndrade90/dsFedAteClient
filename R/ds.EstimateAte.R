@@ -56,7 +56,8 @@
 #'   the shifts.  The asymptotic variance is identical to the no-study-effects
 #'   case (Appendix B.4.2 of Khellaf et al., 2025); the degrees of freedom
 #'   adjust from n - 2(d+1) to n - 2(d+K) automatically.  Has no effect and
-#'   emits a warning when only one datasource is present.
+#'   emits a warning when only one datasource is present, or when
+#'   \code{outcome_type = "binary"} (not currently supported for binary outcomes).
 #' @param heterogeneous Logical. If \code{TRUE} (default), the leverage-corrected
 #'   OLS noise component of the variance is computed from the per-arm Gram inverses returned by
 #'   \code{ds.glm(viewVarCov = TRUE)}, using the global covariate mean assembled
@@ -74,7 +75,8 @@
 #'   variance is returned using the local Fisher information matrices and
 #'   gradient vectors from each site; the \code{heterogeneous} argument has
 #'   no effect for binary outcomes (the Hessian-based formula handles
-#'   heterogeneity automatically).
+#'   heterogeneity automatically).  Setting \code{outcome_type = "binary"}
+#'   forces \code{study_effects = FALSE} with a warning.
 #'
 #' @return When \code{compute_variance = TRUE}, a named list with seven
 #'   elements:
@@ -138,6 +140,11 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
   # Study-effects setup ---------------------------------------------------------
 
   K <- length(datasources)
+
+  if (study_effects && outcome_type == "binary") {
+    cli::cli_warn("`study_effects = TRUE` is not supported for binary outcomes and will be ignored.")
+    study_effects <- FALSE
+  }
 
   if (study_effects && K == 1L) {
     cli::cli_warn("`study_effects = TRUE` has no effect with a single datasource.")

@@ -611,6 +611,23 @@ test_that("ds.EstimateAte binary n_total matches data size", {
   expect_equal(sum(result$n_k), result$n_total)
 })
 
+test_that("ds.EstimateAte binary with study_effects=TRUE warns and still returns a result", {
+  expect_warning(
+    result <- ds.EstimateAte(
+      datasources      = conns_bin,
+      base_name        = "study_data",
+      outcome_name     = "Y",
+      treatment_name   = "W",
+      covariate_names  = c("X1", "X2"),
+      outcome_type     = "binary",
+      study_effects    = TRUE,
+      compute_variance = FALSE
+    ),
+    "not supported for binary"
+  )
+  expect_named(result, c("ate", "n_total", "n_k", "ate_k"))
+})
+
 # .compute_variance_binary -----------------------------------------------------
 
 make_binary_inputs <- function() {

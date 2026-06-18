@@ -30,11 +30,11 @@ library(dsRctFedClient)
 ```
 ## Description
 
-Randomized Controlled Trials (RCTs) are the gold standard for estimating causal treatment effects, as randomization ensures that treatment assignment is independent of patient characteristics, allowing for unbiased estimation of the Average Treatment Effect (ATE). In practice, however, individual RCTs are often limited in sample size, patient diversity, or generalizability. Combining evidence across multiple trials conducted at different centers is therefore highly desirable, but raises an immediate obstacle: individual-level data are frequently siloed across institutions due to privacy regulations, ethical constraints, or data governance policies, making naive data centralization infeasible.
+Randomized Controlled Trials (RCTs) are the gold standard for estimating causal treatment effects, as randomization ensures that treatment assignment is independent of patient characteristics, allowing for unbiased estimation of the Average Treatment Effect (ATE). In practice, however, individual RCTs are often limited in sample size, patient diversity, or generalizability. Combining evidence across multiple trials conducted at different sites is therefore highly desirable, but raises an immediate obstacle: individual-level data are frequently siloed across institutions due to privacy regulations, ethical constraints, or data governance policies, making naive data centralization infeasible.
 
-Federated learning offers a principled solution to this tension. Rather than centralizing data, federated approaches coordinate model fitting across centers by exchanging only intermediate quantities — such as model parameters or gradients — so that raw patient records never leave their originating site. However, translating this paradigm to causal inference is non-trivial. Federated learning was originally developed for predictive modeling, where the goal is to minimize a shared loss function across sites. Causal inference pursues a fundamentally different objective — estimating treatment effects — which requires careful modeling of both outcome and treatment assignment mechanisms across heterogeneous populations, and cannot be reduced to a standard prediction task.
+Federated learning offers a principled solution to this tension. Rather than centralizing data, federated approaches coordinate model fitting across sites by exchanging only intermediate quantities — such as model parameters or gradients — so that raw patient records never leave their originating site. However, translating this paradigm to causal inference is non-trivial. Federated learning was originally developed for predictive modeling, where the goal is to minimize a shared loss function across sites. Causal inference pursues a fundamentally different objective — estimating treatment effects — which requires careful modeling of both outcome and treatment assignment mechanisms across heterogeneous populations, and cannot be reduced to a standard prediction task.
 
-This vignette demonstrates how to use the package to estimate the ATE across multiple RCTs in exactly this federated setting. The package is built on top of **DataSHIELD**, leveraging `dsBaseClient::ds.glm` to fit two federated linear regressions — one for each treatment arm — directly on the decentralized data. The resulting model parameters are then shared back, each center computes its local ATE via the Plug-in G-Formula, and these estimates are aggregated into a global ATE, following the federated estimator of @khellaf2025. We can think of this method as conducting an individual patient data (IPD) meta-analysis, but without pooling the raw data into a central location. Instead, the data remains distributed across participating sites.
+This vignette demonstrates how to use the package to estimate the ATE across multiple RCTs in exactly this federated setting. The package is built on top of **DataSHIELD**, leveraging `dsBaseClient::ds.glm` to fit two federated linear regressions — one for each treatment arm — directly on the decentralized data. The resulting model parameters are then shared back, each site computes its local ATE via the Plug-in G-Formula, and these estimates are aggregated into a global ATE, following the federated estimator of @khellaf2025. We can think of this method as conducting an individual patient data (IPD) meta-analysis, but without pooling the raw data into a central location. Instead, the data remains distributed across participating sites.
 
 
 ## How to install
@@ -67,12 +67,12 @@ Since all examples concern **randomised controlled trials (RCTs)**, treatment is
 $$W_{ki} \perp\!\!\!\perp \bigl(Y_{ki}^{(0)},\, Y_{ki}^{(1)}\bigr),$$
 and positivity holds ($0 < p_k < 1$ for all $k$). Together, these conditions ensure that the ATE,
 $$\tau^\star = \mathbb{E}\!\left[Y^{(1)} - Y^{(0)}\right],$$
-is nonparametrically identified. We estimate $\tau^\star$ via the **plug-in G-formula**: arm-specific outcome models are fitted on each treatment arm; each site $k$ then computes its local ATE $\hat\tau_k$ using the shared model parameters, and the global estimate is the sample-size-weighted average,
+is nonparametrically identified, i.e., it can be estimated from the observed data. We estimate $\tau^\star$ via the **plug-in G-formula**: arm-specific outcome models are fitted on each treatment arm across all participating sites; each site $k$ then computes its local ATE $\hat\tau_k$ using the shared model parameters, and the global estimate is the sample-size-weighted average,
 $$\hat\tau = \sum_{k=1}^K \frac{n_k}{n}\,\hat\tau_k.$$
 
 ### Federated learning
 
-In multi-centre settings, pooling individual-level data is often infeasible due to privacy regulations or data governance policies. **Federated learning** offers a principled alternative: rather than moving the data, the analyst sends a query to each site, which computes locally and returns only aggregated statistics. Individual-level records never leave their originating site.
+As mentioned, centralizing individual-level data from multiple sites into a single repository is often difficult or infeasible because of privacy, logistical, competitive, and governance constraints. **Federated learning** offers a principled alternative to data pooling: rather than moving the data, the analyst sends a query to each site, which performs computations on its local dataset and returns only aggregated statistics. Individual-level records never leave their originating site.
 
 This package is built on top of **DataSHIELD**, which provides exactly this infrastructure for clinical and population research. The figure below illustrates the setup.
 
@@ -87,9 +87,9 @@ The two server-side operations used throughout this vignette are:
 
 ### Estimation for continuous outcomes
 
-All examples in this vignette concern **continuous outcomes** modeled by **linear regression**. For each treatment arm $w \in \{0, 1\}$, we solve
+All examples in this vignette concern **continuous outcomes** modeled by **linear regression**. In particular, even under model misspecification, covariate adjustment via linear regression always reduces the asymptotic variance relative to the unadjusted difference-in-means and remains unbiased [@wager2024, Chapter 1]. For each treatment arm $w \in \{0, 1\}$, we solve
 $$(\hat\alpha_w,\, \hat\beta_w) = \underset{\alpha,\, \beta}{\arg\min} \sum_{k=1}^K\sum_{i:\, W_{ki} = w} \left(Y_{ki} - \alpha - \beta^\top X_{ki}\right)^2$$
-federatively via `dsBaseClient::ds.glm`. Because the outcome model is linear, this yields the exact pooled solution — no approximation is involved. Covariate adjustment reduces asymptotic variance relative to the unadjusted difference-in-means [@wager2024, Chapter 1].
+federatively via `dsBaseClient::ds.glm`. Because the outcome model is linear, this yields the exact pooled solution — no approximation is involved.
 
 Each site $k$ then computes its local ATE by applying the shared coefficients $(\hat\alpha_0, \hat\beta_0, \hat\alpha_1, \hat\beta_1)$ via the plug-in G-formula:
 $$\hat\tau_k = \frac{1}{n_k}\sum_{i=1}^{n_k} \left[(\hat\alpha_1 + \hat\beta_1^\top X_{ki}) - (\hat\alpha_0 + \hat\beta_0^\top X_{ki})\right].$$
@@ -97,11 +97,11 @@ The $n_k/n$ weights target the treatment effect on the pooled population $\sum_{
 
 ### Local testing with DSLite
 
-In a real DataSHIELD deployment, each participating institution runs its own dedicated server, and the analyst connects to all of them remotely over a network. Setting up this infrastructure — even for a small test — requires server access, network configuration, and coordination across organisations, which is impractical for development and illustration purposes.
+In a real DataSHIELD deployment, each participating site needs to run its own dedicated server, and the analyst connects to these servers remotely. Setting up such infrastructure requires server access, network configuration, and institutional coordination.
 
-**DSLite** solves this by simulating the entire federated infrastructure on a single computer. Rather than connecting to real remote servers, it creates lightweight virtual servers that run inside your R session alongside the rest of your code. Each virtual server holds a local dataset and behaves exactly as a real DataSHIELD server would: it receives queries, enforces the same disclosure controls, and returns only aggregated results. From the analyst's perspective — and from the client package's perspective — the experience is indistinguishable from a live deployment.
+For pedagogical and reproducibility purposes, we use the **DSLite** package throughout this vignette, which emulates a federated DataSHIELD infrastructure on a single computer by creating lightweight virtual servers inside the local R session. Each server holds its own dataset, enforces disclosure controls, and returns only aggregated results.
 
-This makes DSLite the standard tool for developing, testing, and illustrating federated analyses in a self-contained, fully reproducible way. All examples in this vignette use it in place of real servers.
+In a real multi-site study, the same workflow would be run against remote institutional servers.
 
 ```{r, eval=TRUE}
 library(dsRctFedClient)
@@ -114,12 +114,12 @@ library(MASS)
 
 DataSHIELD servers enforce disclosure controls through a set of configurable thresholds. Two are particularly relevant here. The `datashield.privacyControlLevel` option sets the overall stringency of the privacy policy; the default level `"banana"` blocks known inference attacks while permitting a degree of subsetting flexibility. The `nfilter.glm` option controls how many observations a treatment arm must have before a GLM can be fitted: specifically, it requires the number of observations to be at least $(d+1)/\texttt{nfilter.glm}$, where $d$ is the number of covariates. At the default value of $0.33$, this means roughly three observations per parameter — a safeguard against models so saturated that individual records could be reconstructed from the output.
 
-All examples set these options explicitly so that the privacy context is unambiguous. Most use the defaults (`"banana"` and `0.33`); Example 2 and Example 4 deviate and explain why.
+All examples set these options explicitly so that the privacy context is unambiguous. Examples 1 and 3 use the default privacy values (`"banana"` and `0.33`) while Example 2 and Example 4 use different ones, as later explained.
 
 ## Example 1
 
 This first example reproduces the simulation setting of Appendix C.1 of @khellaf2025, 
-which considers $K$ centers with balanced sample sizes and homogeneous covariate 
+which considers $K$ sites with balanced sample sizes and homogeneous covariate 
 distributions. The main purpose is to illustrate that the federated approach yields 
 exactly the same result as if the computation had been carried out in a centralized setting.
 
@@ -130,7 +130,7 @@ $$Y_{ki}^{(w)} = \alpha_w + \beta_w^\top X_{ki} + \varepsilon_{ki}^{(w)}, \qquad
 so the ATE evaluates to
 $$\tau^\star = (\alpha_1 - \alpha_0) + (\beta_1 - \beta_0)^\top \mu_X.$$
 
-```{r graphical-model, echo=FALSE, out.width="250px", fig.align="center", fig.cap="Causal relationships: center H influences treatment assignment W; both treatment W and covariates X affect outcome Y"}
+```{r graphical-model, echo=FALSE, out.width="250px", fig.align="center", fig.cap="Causal relationships: site membership H influences treatment assignment W; both treatment W and covariates X affect outcome Y"}
 knitr::include_graphics("figure1_small.svg")
 ```
 
@@ -177,7 +177,7 @@ print(true_ATE)
 ### Data Generation
 
 ```{r, eval = TRUE}
-data_list <- list() # list that will contain K data frames (one per center)
+data_list <- list() # list that will contain K data frames (one per site)
 
 for (k in 1:K) {
   n_k <- n_per_study
@@ -324,13 +324,13 @@ DSI::datashield.logout(conns)
 
 ## Example 2 — The role of privacy settings
 
-This second example illustrates how DataSHIELD's disclosure controls interact with the federated estimation. We use the same model parameters and covariate distribution as Example 1, but with more extreme treatment probabilities: three centers assign treatment with probability 0.9 and two centers with probability 0.1.
+This second example illustrates how DataSHIELD's disclosure controls interact with the federated estimation. We use the same model parameters and covariate distribution as Example 1, but with more extreme treatment probabilities: three sites assign treatment with probability 0.9 and two sites with probability 0.1.
 
 ```{r, eval = TRUE}
 p_treatment_2 <- c(0.9, 0.9, 0.9, 0.1, 0.1)
 ```
 
-With `n_per_study = 200` and `d = 10` covariates, the two centers with `p = 0.1` will have on average only 20 treated observations. DataSHIELD's `nfilter.glm` threshold requires each arm to have at least `(d + 1) / nfilter.glm = 11 / 0.33 ≈ 33` observations before fitting a GLM — so those centers will be blocked.
+With `n_per_study = 200` and `d = 10` covariates, the two sites with `p = 0.1` will have on average only 20 treated observations. DataSHIELD's `nfilter.glm` threshold requires each arm to have at least `(d + 1) / nfilter.glm = 11 / 0.33 ≈ 33` observations before fitting a GLM — so those sites will be blocked.
 
 ### Data generation
 
@@ -393,7 +393,7 @@ ds.EstimateAte(
 )
 ```
 
-As expected, the call fails: the centers with very few treated (or control) observations are blocked by the GLM saturation filter.
+As expected, the call fails: the sites with very few treated (or control) observations are blocked by the GLM saturation filter.
 
 ### Permissive settings — estimation succeeds
 
@@ -473,11 +473,11 @@ DSI::datashield.logout(conns_2)
 ## Example 3 — Heterogeneous covariate distributions
 
 This third example reproduces the simulation setting of Appendix C.3 of @khellaf2025,
-which extends the homogeneous setup of Example 1 to the case where each center recruits
+which extends the homogeneous setup of Example 1 to the case where each site recruits
 from a **different patient population**. Both the covariate mean $\mu_k$ and covariance
-$\Sigma_k$ now vary across centers, reflecting the reality that multi-center trials
+$\Sigma_k$ now vary across sites, reflecting the reality that multi-site trials
 often recruit from geographically or demographically distinct patient pools. As in
-Example 1, treatment probabilities also differ across centers ($p_k \neq p_{k'}$), so
+Example 1, treatment probabilities also differ across sites ($p_k \neq p_{k'}$), so
 study membership $H$ influences both the covariate distribution $X$ and treatment
 assignment $W$.
 
@@ -490,9 +490,9 @@ The correct variance estimator uses the per-arm Gram matrix inverses returned by
 
 ### Mathematical Formulation
 
-**Data generation.** The graphical model now includes arrows from $H$ (study membership) to both $X$ (covariates) and $W$ (treatment), since the covariate distribution and the treatment probability both depend on the center. For individual $i$ in center $k$, covariates are drawn as $X_{ki} \sim \mathcal{N}(\mu_k, \Sigma_k)$ with site-specific mean and covariance. Treatment is assigned as $W_{ki} \sim \mathrm{Bernoulli}(p_k)$ independently of $X_{ki}$, so randomization is preserved at every site. Potential outcomes follow the same linear model as in Example 1.
+**Data generation.** The graphical model now includes arrows from $H$ (study membership) to both $X$ (covariates) and $W$ (treatment), since the covariate distribution and the treatment probability both depend on the site. For individual $i$ in site $k$, covariates are drawn as $X_{ki} \sim \mathcal{N}(\mu_k, \Sigma_k)$ with site-specific mean and covariance. Treatment is assigned as $W_{ki} \sim \mathrm{Bernoulli}(p_k)$ independently of $X_{ki}$, so randomization is preserved at every site. Potential outcomes follow the same linear model as in Example 1.
 
-```{r graphical-model-het, echo = FALSE, out.width = "250px", fig.align = "center", fig.cap = "Causal relationships under distributional shift: center H influences both covariate distribution X and treatment assignment W; treatment W and covariates X affect outcome Y"}
+```{r graphical-model-het, echo = FALSE, out.width = "250px", fig.align = "center", fig.cap = "Causal relationships under distributional shift: site membership H influences both covariate distribution X and treatment assignment W; treatment W and covariates X affect outcome Y"}
 knitr::include_graphics("figure2_small.svg")
 ```
 
@@ -582,7 +582,7 @@ print(true_ATE_het)
 ### Data Generation
 
 ```{r, eval = TRUE}
-data_list_het <- vector("list", K) # list that will contain K data frames (one per center)
+data_list_het <- vector("list", K) # list that will contain K data frames (one per site)
 for (k in 1:K) {
   n_k   <- n_list[k]
   X_k   <- mvrnorm(n = n_k, mu = mu_list[[k]], Sigma = Sigma_list[[k]])
@@ -635,7 +635,7 @@ DSI::datashield.assign.table(conns = conns_het, table = "study_data", symbol = "
 
 ### Federated Estimation of the ATE
 
-We pass `heterogeneous = TRUE` to use the OLS covariance-based variance formula, which is appropriate here because the covariate distributions differ across centers.
+We pass `heterogeneous = TRUE` to use the OLS covariance-based variance formula, which is appropriate here because the covariate distributions differ across sites.
 
 ```{r, results = 'hide', message = FALSE}
 federated_ate_het <- ds.EstimateAte(
@@ -776,7 +776,7 @@ print(true_ATE)
 ### Data Generation
 
 ```{r, eval = TRUE}
-data_list_3 <- vector("list", K) # list that will contain K data frames (one per center)
+data_list_3 <- vector("list", K) # list that will contain K data frames (one per site)
 for (k in 1:K) {
   n_k <- n_list[k]
   X_k <- mvrnorm(n = n_k, mu = mu_list[[k]], Sigma = Sigma_list[[k]])
@@ -914,4 +914,199 @@ isTRUE(all.equal(pooled_ate_3, federated_ate_adj$ate))
 DSI::datashield.logout(conns_3)
 ```
 
+## Example 5 — Binary outcomes
+
+The previous examples all concern **continuous outcomes** modeled by linear regression. This example demonstrates the same federated framework for **binary outcomes** — for instance, a 30-day mortality indicator or the occurrence of an adverse event — using logistic regression.
+
+Two changes relative to Examples 1–3 are needed:
+
+1. `outcome_type = "binary"` switches `ds.glm` to `family = "binomial"` and replaces the linear plug-in formula with **G-computation** based on the logistic link.
+2. The delta-method variance now uses the Fisher information matrices and gradient vectors returned by the servers, rather than residual sums of squares (which are undefined for logistic models).
+
+Note that `study_effects = TRUE` is **not supported** for binary outcomes and is silently forced to `FALSE` with a warning. If study effects are present in a binary-outcome trial, they must be handled by including site dummies directly in `covariate_names`.
+
+### Mathematical Formulation
+
+**Data generation.** For each treatment arm $w \in \{0, 1\}$, outcomes are drawn as
+
+$$Y_{ki}^{(w)} \sim \mathrm{Bernoulli}\!\left(\sigma(\alpha_w + \beta_w^\top X_{ki})\right),$$
+
+where $\sigma(u) = 1/(1 + e^{-u})$ is the logistic function and $X_{ki} \sim \mathcal{N}(0, I_d)$.
+
+**ATE via G-computation.** Because the logistic link is non-linear, the treatment effect varies across individuals even when slopes are equal across arms. Each server $k$ estimates the local ATE as the average individual-level contrast under the pooled model:
+
+$$\hat\tau_k = \frac{1}{n_k}\sum_{i=1}^{n_k}\left[\sigma(\hat\alpha_1 + \hat\beta_1^\top X_{ki}) - \sigma(\hat\alpha_0 + \hat\beta_0^\top X_{ki})\right],$$
+
+and the global estimate is $\hat\tau = \sum_k (n_k/n)\,\hat\tau_k$.
+
+**Variance via delta method.** For binomial models, `ds.glm(viewVarCov = TRUE)` returns the inverse Fisher information matrix $H_w^{-1} = \bigl(\tilde X_w^\top \mathrm{diag}(v_w) \tilde X_w\bigr)^{-1}$ (where $v_{w,i} = \hat\mu_{w,i}(1 - \hat\mu_{w,i})$ and $\tilde X = [1 \mid X]$). Each server additionally returns the unnormalised gradient sums $\sum_i v_{w,i}\tilde x_i$ and the local scatter $s_k^\delta = \sum_i(\delta_i - \hat\tau_k)^2$. The variance estimator is then
+
+$$\hat V(\hat\tau) = \mathbf{g}_1^\top H_1^{-1} \mathbf{g}_1 + \mathbf{g}_0^\top H_0^{-1} \mathbf{g}_0 + \frac{\sum_k\bigl[s_k^\delta + n_k(\hat\tau_k - \hat\tau)^2\bigr]}{n(n-1)},$$
+
+where $\mathbf{g}_w = n^{-1}\sum_k\sum_i v_{w,i}\tilde x_i$ (with a sign flip for $w = 0$). This expression handles heterogeneous sites automatically; the `heterogeneous` argument has no effect when `outcome_type = "binary"`.
+
+**True ATE.** For a standard normal covariate distribution, the population ATE is
+
+$$\tau^\star = \mathbb{E}_X\!\left[\sigma(\alpha_1 + \beta_1^\top X) - \sigma(\alpha_0 + \beta_0^\top X)\right],$$
+
+which we approximate by Monte Carlo.
+
+### Parameters
+
+```{r, eval = TRUE}
+set.seed(42)
+
+K           <- 3   # number of sites
+d           <- 2   # covariates
+n_per_study <- 300
+p_treat     <- 0.5 # balanced assignment at every site
+
+# Logistic model parameters
+alpha_0_bin <- 0.0;  alpha_1_bin <- 1.0
+beta_0_bin  <- c( 0.5, -0.3)
+beta_1_bin  <- c( 0.5, -0.3)   # same slopes — ATE comes entirely from the intercept shift
+```
+
+The true ATE is approximated via Monte Carlo on a large standard-normal sample:
+
+```{r, eval = TRUE}
+set.seed(0)
+X_mc     <- matrix(rnorm(1e6 * d), nrow = 1e6)
+true_ATE_bin <- mean(
+  plogis(alpha_1_bin + X_mc %*% beta_1_bin) -
+  plogis(alpha_0_bin + X_mc %*% beta_0_bin)
+)
+cat(sprintf("True ATE (Monte Carlo): %.4f\n", true_ATE_bin))
+```
+
+### Data Generation
+
+```{r, eval = TRUE}
+data_list_bin <- vector("list", K)
+
+for (k in seq_len(K)) {
+  X_k  <- matrix(rnorm(n_per_study * d), nrow = n_per_study)
+  W_k  <- rbinom(n_per_study, 1, p_treat)
+  lp_0 <- alpha_0_bin + X_k %*% beta_0_bin
+  lp_1 <- alpha_1_bin + X_k %*% beta_1_bin
+  Y_k  <- rbinom(n_per_study, 1,
+                 ifelse(W_k == 1, plogis(lp_1), plogis(lp_0)))
+  data_list_bin[[k]] <- data.frame(W = W_k, Y = Y_k,
+                                   X1 = X_k[, 1], X2 = X_k[, 2])
+}
+
+pooled_bin <- do.call(rbind, data_list_bin)
+```
+
+### Creation of DSLite Servers
+
+With balanced assignment ($p = 0.5$) and $n_k = 300$, the expected arm size is 150 — well above the `nfilter.glm` threshold of $(d+1)/0.33 \approx 9$. Default `banana` settings apply.
+
+```{r, eval = TRUE}
+options(
+  datashield.privacyControlLevel = "banana",
+  nfilter.glm                    = 0.33
+)
+
+for (k in seq_len(K)) {
+  srv_name <- paste0("dslite.server_bin", k)
+  srv      <- DSLite::newDSLiteServer(tables = list(study_data = data_list_bin[[k]]))
+  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  srv$aggregateMethod("localAteDS",                        "localAteDS")
+  srv$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
+  srv$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")
+  assign(srv_name, srv, envir = .GlobalEnv)
+}
+
+builder_bin <- DSI::newDSLoginBuilder()
+for (k in seq_len(K)) {
+  builder_bin$append(
+    server = paste0("study", k),
+    url    = paste0("dslite.server_bin", k),
+    table  = "study_data",
+    driver = "DSLiteDriver"
+  )
+}
+
+conns_bin <- DSI::datashield.login(logins = builder_bin$build(), assign = FALSE)
+DSI::datashield.assign.table(conns = conns_bin, table = "study_data", symbol = "base")
+```
+
+### Federated Estimation of the ATE
+
+```{r, results = 'hide', message = FALSE}
+federated_ate_bin <- ds.EstimateAte(
+  datasources     = conns_bin,
+  base_name       = "base",
+  outcome_name    = "Y",
+  treatment_name  = "W",
+  covariate_names = c("X1", "X2"),
+  outcome_type    = "binary"
+)
+```
+
+```{r, eval = TRUE}
+cat(sprintf(
+  "ATE: %.4f  SE: %.4f  95%% CI: [%.4f, %.4f]  True ATE: %.4f\n",
+  federated_ate_bin$ate,
+  sqrt(federated_ate_bin$variance),
+  federated_ate_bin$ci_lower,
+  federated_ate_bin$ci_upper,
+  true_ATE_bin
+))
+```
+
+The confidence interval covers the true ATE.
+
+### Comparison with the Pooled Estimator
+
+We verify that the federated estimate is identical to the centralised G-computation using arm-specific logistic regressions fitted on the pooled data.
+
+```{r, eval = TRUE}
+formula_bin <- Y ~ X1 + X2
+
+fit_treated_bin <- glm(formula_bin, data = pooled_bin[pooled_bin$W == 1, ],
+                       family = binomial)
+fit_control_bin <- glm(formula_bin, data = pooled_bin[pooled_bin$W == 0, ],
+                       family = binomial)
+
+X_mat_bin <- as.matrix(pooled_bin[, c("X1", "X2")])
+pooled_ate_bin <- mean(
+  predict(fit_treated_bin, newdata = pooled_bin, type = "response") -
+  predict(fit_control_bin, newdata = pooled_bin, type = "response")
+)
+
+isTRUE(all.equal(pooled_ate_bin, federated_ate_bin$ate))
+```
+
+### Note on `study_effects`
+
+Passing `study_effects = TRUE` alongside `outcome_type = "binary"` is not supported: the study-membership dummy augmentation is currently implemented only for the Gaussian arm models. The function emits a warning and falls back to the unadjusted estimator:
+
+```{r, eval = TRUE}
+invisible(withCallingHandlers(
+  ds.EstimateAte(
+    datasources      = conns_bin,
+    base_name        = "base",
+    outcome_name     = "Y",
+    treatment_name   = "W",
+    covariate_names  = c("X1", "X2"),
+    outcome_type     = "binary",
+    study_effects    = TRUE,
+    compute_variance = FALSE
+  ),
+  warning = function(w) {
+    message("Warning caught: ", conditionMessage(w))
+    invokeRestart("muffleWarning")
+  }
+))
+```
+
+If study effects are present in a binary-outcome trial, include site dummies explicitly in `covariate_names` instead.
+
+```{r, eval = TRUE}
+DSI::datashield.logout(conns_bin)
+```
+
 ## References
+
