@@ -129,116 +129,125 @@ test_that("ds.EstimateAte compute_variance=FALSE ATE matches full result", {
   expect_equal(ate_only$ate_k, full$ate_k)
 })
 
-# .compute_variance ------------------------------------------------------------
+# .compute_variance_delta -------------------------------------------------------
 
-test_that(".compute_variance returns a positive scalar", {
+test_that(".compute_variance_delta returns a positive finite scalar", {
   n       <- 100L
-  n_1     <- 50L
-  d       <- 2L
-  rss_k   <- c(20.0, 15.0)
-  s_k     <- c(3.0, 2.5)
   n_k     <- c(60L, 40L)
   tau_k   <- c(0.54, 0.56)
   ate_hat <- sum(n_k * tau_k) / n
-
-  v <- .compute_variance(n, n_1, rss_k, s_k, n_k, tau_k, ate_hat, d)
-  expect_length(v, 1L)
-  expect_gt(v, 0)
-  expect_false(is.na(v))
-})
-
-test_that(".compute_variance first term equals sigma2 / (n * p * (1-p))", {
-  n       <- 100L
-  n_1     <- 50L
-  d       <- 1L
-  rss_k   <- c(19.6)   # sigma2_hat = 19.6 / (100 - 4)
-  s_k     <- 0.0       # zero within-site scatter
-  n_k     <- 100L
-  tau_k   <- 0.5       # τ̂_k = τ̂ → between-site term = 0
-  ate_hat <- 0.5
-
-  v          <- .compute_variance(n, n_1, rss_k, s_k, n_k, tau_k, ate_hat, d)
-  sigma2_hat <- rss_k / (n - 2L * (d + 1L))
-  p_hat      <- n_1 / n
-  expected   <- sigma2_hat / (n * p_hat * (1 - p_hat))
-  expect_equal(v, expected, tolerance = 1e-10)
-})
-
-test_that(".compute_variance second term is zero when all tau_k equal ate_hat", {
-  n       <- 100L
-  n_1     <- 50L
-  d       <- 2L
-  rss_k   <- c(10.0, 8.0)
-  n_k     <- c(60L, 40L)
-  tau_k   <- c(0.5, 0.5)   # τ̂_k − τ̂ = 0; s_k_scalar also zero
-  ate_hat <- 0.5
-
-  v_second_zero <- .compute_variance(n, n_1, rss_k, c(0, 0), n_k, tau_k, ate_hat, d)
-  sigma2_hat    <- sum(rss_k) / (n - 2L * (d + 1L))
-  p_hat         <- n_1 / n
-  first_only    <- sigma2_hat / (n * p_hat * (1 - p_hat))
-  expect_equal(v_second_zero, first_only, tolerance = 1e-10)
-})
-
-test_that(".compute_variance heterogeneous=TRUE returns a positive finite scalar", {
-  n       <- 100L
-  n_1     <- 50L
-  d       <- 2L
-  rss_k   <- c(10.0, 8.0)
+  g       <- c(1, 0.1, -0.05)
+  V1      <- (1 / 60) * diag(3L)
+  V0      <- (1 / 40) * diag(3L)
   s_k     <- c(3.0, 2.5)
-  n_k     <- c(60L, 40L)
-  tau_k   <- c(0.54, 0.46)
-  ate_hat <- sum(n_k * tau_k) / n
-  # vcov_w = (G^w)^{-1} (unscaled), as returned by ds.glm's VarCovMatrix
-  vcov_1  <- (1 / 60) * diag(d + 1L)
-  vcov_0  <- (1 / 40) * diag(d + 1L)
-  X_bar   <- c(0.1, -0.05)
 
-  v <- .compute_variance(n, n_1, rss_k, s_k, n_k, tau_k, ate_hat, d,
-         heterogeneous = TRUE,
-         vcov_treated  = vcov_1,
-         vcov_control  = vcov_0,
-         X_bar         = X_bar)
+  v <- .compute_variance_delta(100L, n_k, tau_k, ate_hat, g, g, V1, V0, s_k)
   expect_length(v, 1L)
   expect_gt(v, 0)
   expect_false(is.na(v))
   expect_false(is.infinite(v))
 })
 
-test_that(".compute_variance heterogeneous=TRUE Term(I) reduces to homogeneous when delta=0", {
-  # When vcov_w = sigma2_w * (G^w)^{-1} and X_bar = arm means = global mean,
-  # Term(I) = sigma2_hat * X_bar' (G1_inv + G0_inv) X_bar'.
-  # For a simple balanced case with identity Gram (so G^{-1} = I/n^w for a
-  # standardised design), the quadratic form gives sigma2_hat/(n*p*(1-p)).
-  # Here we just verify numerical agreement against the closed-form path.
-  n       <- 200L
-  n_1     <- 100L
-  d       <- 1L
-  rss_k   <- 40.0
-  s_k     <- 0.0
-  n_k     <- 200L
-  tau_k   <- 0.5
-  ate_hat <- 0.5
+test_that(".compute_variance_delta param term is zero when g = 0", {
+  n       <- 100L
+  n_k     <- c(60L, 40L)
+  tau_k   <- c(0.54, 0.46)
+  ate_hat <- sum(n_k * tau_k) / n
+  g       <- rep(0, 3L)
+  V       <- diag(3L)
+  s_k     <- c(3.0, 2.5)
 
+  v         <- .compute_variance_delta(n, n_k, tau_k, ate_hat, g, g, V, V, s_k)
+  tss       <- sum(s_k + n_k * (tau_k - ate_hat)^2)
+  samp_only <- tss / (n * (n - 1L))
+  expect_equal(v, samp_only, tolerance = 1e-10)
+})
+
+test_that(".compute_variance_delta sampling term is zero when tau_k = ate_hat and s_k = 0", {
+  n       <- 100L
+  n_k     <- c(60L, 40L)
+  tau_k   <- c(0.5, 0.5)
+  ate_hat <- 0.5
+  g       <- c(1, 0.1)
+  V1      <- (1 / 60) * diag(2L)
+  V0      <- (1 / 40) * diag(2L)
+  s_k     <- c(0, 0)
+
+  v          <- .compute_variance_delta(n, n_k, tau_k, ate_hat, g, g, V1, V0, s_k)
+  param_only <- as.numeric(g %*% V1 %*% g) + as.numeric(g %*% V0 %*% g)
+  expect_equal(v, param_only, tolerance = 1e-10)
+})
+
+test_that(".compute_variance_delta continuous-heterogeneous matches homogeneous closed form when X_bar = 0 and balanced Gram", {
+  # With X_bar = 0, g = c(1, 0), and (G^w)^{-1} = (1/n_w) * I (balanced, centred X),
+  # the param term = sigma2 * (1/n_1 + 1/n_0) = sigma2 / (n * p * (1-p)),
+  # recovering the homogeneous closed form.
+  n          <- 200L
+  n_1        <- 100L
+  d          <- 1L
+  rss_k      <- 40.0
+  s_k        <- 0.0
+  n_k        <- 200L
+  tau_k      <- 0.5
+  ate_hat    <- 0.5
   sigma2_hat <- rss_k / (n - 2L * (d + 1L))
   p_hat      <- n_1 / n
 
-  # When G^(w) = n^(w) * I_{d+1} (identity Gram, as for centred orthogonal X),
-  # (G^(w))^{-1} = (1/n^(w)) * I_{d+1} — this is what ds.glm returns as VarCovMatrix.
-  # With X_bar = 0, Lemma 2 gives X_bar' (G1_inv + G0_inv) X_bar' = 1/n_1 + 1/n_0 = 1/(n*p*(1-p)).
-  # So Term I = sigma2_hat / (n * p * (1-p)), recovering the homogeneous closed form.
-  vcov_1  <- (1 / n_1)      * diag(d + 1L)
-  vcov_0  <- (1 / (n - n_1)) * diag(d + 1L)
-  X_bar   <- 0.0
+  vcov_1      <- (1 / n_1)        * diag(d + 1L)
+  vcov_0      <- (1 / (n - n_1))  * diag(d + 1L)
+  x_bar_prime <- c(1, 0.0)
 
-  v_het  <- .compute_variance(n, n_1, rss_k, s_k, n_k, tau_k, ate_hat, d,
-               heterogeneous = TRUE,
-               vcov_treated  = vcov_1,
-               vcov_control  = vcov_0,
-               X_bar         = X_bar)
-  v_hom  <- .compute_variance(n, n_1, rss_k, s_k, n_k, tau_k, ate_hat, d)
-
+  v_het <- .compute_variance_delta(
+    n, n_k, tau_k, ate_hat,
+    g_treated    = x_bar_prime,
+    g_control    = x_bar_prime,
+    vcov_treated = sigma2_hat * vcov_1,
+    vcov_control = sigma2_hat * vcov_0,
+    s_k          = s_k
+  )
+  tss   <- sum(s_k + n_k * (tau_k - ate_hat)^2)
+  v_hom <- sigma2_hat / (n * p_hat * (1 - p_hat)) + tss / (n * (n - 1L))
   expect_equal(v_het, v_hom, tolerance = 1e-10)
+})
+
+test_that(".compute_variance_delta binary path matches manual delta-method formula (single site)", {
+  set.seed(7)
+  n  <- 100L
+  X  <- cbind(rnorm(n), rnorm(n))
+  W  <- rbinom(n, 1, 0.5)
+  df <- data.frame(
+    Y  = rbinom(n, 1, plogis(-0.2 + X %*% c(0.4, -0.2))),
+    W  = W, X1 = X[, 1], X2 = X[, 2]
+  )
+  fit1 <- glm(Y ~ X1 + X2, data = df[df$W == 1, ], family = binomial)
+  fit0 <- glm(Y ~ X1 + X2, data = df[df$W == 0, ], family = binomial)
+
+  Xt    <- cbind(1, X)
+  mu1   <- as.numeric(plogis(Xt %*% coef(fit1)))
+  mu0   <- as.numeric(plogis(Xt %*% coef(fit0)))
+  v1    <- mu1 * (1 - mu1)
+  v0    <- mu0 * (1 - mu0)
+  delta <- mu1 - mu0
+  ate   <- mean(delta)
+  g1    <-  colSums(v1 * Xt) / n
+  g0    <- -colSums(v0 * Xt) / n
+
+  v_manual <- as.numeric(g1 %*% vcov(fit1) %*% g1) +
+              as.numeric(g0 %*% vcov(fit0) %*% g0) +
+              var(delta) / n
+
+  v_helper <- .compute_variance_delta(
+    n            = n,
+    n_k          = n,
+    tau_k        = ate,
+    ate_hat      = ate,
+    g_treated    = g1,
+    g_control    = g0,
+    vcov_treated = vcov(fit1),
+    vcov_control = vcov(fit0),
+    s_k          = sum((delta - ate)^2)
+  )
+  expect_equal(v_helper, v_manual, tolerance = 1e-10)
 })
 
 # .check_sample_sizes ----------------------------------------------------------
@@ -628,115 +637,6 @@ test_that("ds.EstimateAte binary with study_effects=TRUE warns and still returns
   expect_named(result, c("ate", "n_total", "n_k", "ate_k"))
 })
 
-# .compute_variance_binary -----------------------------------------------------
-
-make_binary_inputs <- function() {
-  set.seed(99)
-  n      <- 100L
-  n_k    <- c(60L, 40L)
-  alpha1 <- 0.5;  alpha0 <- 0.0
-  beta1  <- c(0.4, -0.2);  beta0 <- c(0.3, -0.1)
-
-  make_site_data <- function(nk) {
-    X   <- cbind(rnorm(nk), rnorm(nk))
-    W   <- rbinom(nk, 1, 0.5)
-    mu1 <- as.numeric(plogis(alpha1 + X %*% beta1))
-    mu0 <- as.numeric(plogis(alpha0 + X %*% beta0))
-    list(X = X, W = W, mu1 = mu1, mu0 = mu0)
-  }
-  sites <- lapply(n_k, make_site_data)
-
-  # Aggregate Hessians for vcov (sum over sites, then invert)
-  H1_total <- H0_total <- matrix(0, 3L, 3L)
-  g1_raw_k <- g0_raw_k <- vector("list", 2L)
-  s_k_delta <- numeric(2L)
-  tau_k     <- numeric(2L)
-
-  for (k in seq_along(sites)) {
-    s    <- sites[[k]]
-    Xt   <- cbind(1, s$X)
-    v1   <- s$mu1 * (1 - s$mu1)
-    v0   <- s$mu0 * (1 - s$mu0)
-    idx1 <- s$W == 1L
-    H1_total      <- H1_total + crossprod(Xt[ idx1, ], v1[ idx1] * Xt[ idx1, ])
-    H0_total      <- H0_total + crossprod(Xt[!idx1, ], v0[!idx1] * Xt[!idx1, ])
-    g1_raw_k[[k]] <- colSums(v1 * Xt)
-    g0_raw_k[[k]] <- colSums(v0 * Xt)
-    delta_i       <- s$mu1 - s$mu0
-    tau_k[k]      <- mean(delta_i)
-    s_k_delta[k]  <- sum((delta_i - tau_k[k])^2)
-  }
-  ate_hat      <- sum(n_k * tau_k) / n
-  vcov_treated <- solve(H1_total)
-  vcov_control <- solve(H0_total)
-
-  list(n = n, n_k = n_k, tau_k = tau_k, ate_hat = ate_hat,
-       vcov_treated = vcov_treated, vcov_control = vcov_control,
-       g1_raw_k = g1_raw_k, g0_raw_k = g0_raw_k,
-       s_k_delta = s_k_delta)
-}
-
-test_that(".compute_variance_binary returns a positive finite scalar", {
-  inp <- make_binary_inputs()
-  v   <- .compute_variance_binary(
-    n            = inp$n,
-    n_k          = inp$n_k,
-    tau_k        = inp$tau_k,
-    ate_hat      = inp$ate_hat,
-    vcov_treated = inp$vcov_treated,
-    vcov_control = inp$vcov_control,
-    g1_raw_k     = inp$g1_raw_k,
-    g0_raw_k     = inp$g0_raw_k,
-    s_k_delta    = inp$s_k_delta
-  )
-  expect_length(v, 1L)
-  expect_gt(v, 0)
-  expect_false(is.na(v))
-  expect_false(is.infinite(v))
-})
-
-test_that(".compute_variance_binary matches manual pooled formula (single site)", {
-  # Single site: vcov comes from glm(), which equals H^{-1} for binomial.
-  # This mirrors the ds.glm(viewVarCov=TRUE) path used in production.
-  set.seed(7)
-  n  <- 100L
-  X  <- cbind(rnorm(n), rnorm(n))
-  W  <- rbinom(n, 1, 0.5)
-  df <- data.frame(
-    Y  = rbinom(n, 1, plogis(-0.2 + X %*% c(0.4, -0.2))),
-    W  = W, X1 = X[, 1], X2 = X[, 2]
-  )
-  fit1 <- glm(Y ~ X1 + X2, data = df[df$W == 1, ], family = binomial)
-  fit0 <- glm(Y ~ X1 + X2, data = df[df$W == 0, ], family = binomial)
-
-  Xt  <- cbind(1, X)
-  mu1 <- as.numeric(plogis(Xt %*% coef(fit1)))
-  mu0 <- as.numeric(plogis(Xt %*% coef(fit0)))
-  v1  <- mu1 * (1 - mu1)
-  v0  <- mu0 * (1 - mu0)
-  delta <- mu1 - mu0
-  ate   <- mean(delta)
-
-  g1 <-  colMeans(v1 * Xt)
-  g0 <- -colMeans(v0 * Xt)
-
-  v_manual <- as.numeric(
-    crossprod(g1, vcov(fit1) %*% g1) + crossprod(g0, vcov(fit0) %*% g0)
-  ) + var(delta) / n
-
-  v_helper <- .compute_variance_binary(
-    n            = n,
-    n_k          = n,
-    tau_k        = ate,
-    ate_hat      = ate,
-    vcov_treated = vcov(fit1),
-    vcov_control = vcov(fit0),
-    g1_raw_k     = list(colSums(v1 * Xt)),
-    g0_raw_k     = list(colSums(v0 * Xt)),
-    s_k_delta    = sum((delta - ate)^2)
-  )
-  expect_equal(v_helper, v_manual, tolerance = 1e-10)
-})
 
 # .add_study_id ----------------------------------------------------------------
 

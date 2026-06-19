@@ -167,7 +167,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
   treatment_indicator <- paste0(base_name, "$", treatment_name)
   treated_name        <- paste0(base_name, "_treated")
   control_name        <- paste0(base_name, "_control")
-  formula             <- paste0(outcome_name, " ~ ", paste(covariate_names, collapse = " + "))
+  glm_formula         <- paste0(outcome_name, " ~ ", paste(covariate_names, collapse = " + "))
 
   dsBaseClient::ds.dataFrameSubset(
     df.name          = base_name,
@@ -191,21 +191,8 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 
   need_vcov <- compute_variance && (outcome_type == "binary" || heterogeneous)
 
-  model_treated <- suppressWarnings(dsBaseClient::ds.glm(
-    formula    = formula,
-    data       = treated_name,
-    family     = family,
-    viewVarCov = need_vcov,
-    datasources = datasources
-  ))
-
-  model_control <- suppressWarnings(dsBaseClient::ds.glm(
-    formula    = formula,
-    data       = control_name,
-    family     = family,
-    viewVarCov = need_vcov,
-    datasources = datasources
-  ))
+  model_treated <- .fit_arm_glm(glm_formula, treated_name, family, need_vcov, datasources)
+  model_control <- .fit_arm_glm(glm_formula, control_name, family, need_vcov, datasources)
 
   .check_glm_validity(model_treated, model_control, covariate_names)
 
@@ -261,33 +248,25 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     ))
   }
 
-  if (outcome_type == "binary") {
-    variance <- .compute_variance_binary(
+  sigma2_hat <- if (outcome_type == "binary") 1.0
+               else sum(local_results$rss_k) / (n - 2L * (d + 1L))
+
+  if (heterogeneous || outcome_type == "binary") {
+    variance <- .compute_variance_delta(
       n            = n,
       n_k          = n_k,
       tau_k        = tau_k,
       ate_hat      = ate_hat,
-      vcov_treated = model_treated$VarCovMatrix,
-      vcov_control = model_control$VarCovMatrix,
-      g1_raw_k     = local_results$g1_raw_k,
-      g0_raw_k     = local_results$g0_raw_k,
-      s_k_delta    = local_results$s_k_delta
+      g_treated    = local_results$g1,
+      g_control    = local_results$g0,
+      vcov_treated = sigma2_hat * model_treated$VarCovMatrix,
+      vcov_control = sigma2_hat * model_control$VarCovMatrix,
+      s_k          = local_results$s_k
     )
   } else {
-    variance <- .compute_variance(
-      n             = n,
-      n_1           = n_1,
-      rss_k         = local_results$rss_k,
-      s_k_scalar    = local_results$s_k_scalar,
-      n_k           = n_k,
-      tau_k         = tau_k,
-      ate_hat       = ate_hat,
-      d             = d,
-      heterogeneous = heterogeneous,
-      vcov_treated  = model_treated$VarCovMatrix,
-      vcov_control  = model_control$VarCovMatrix,
-      X_bar         = local_results$X_bar_sum / n
-    )
+    p_hat    <- n_1 / n
+    tss      <- sum(local_results$s_k + n_k * (tau_k - ate_hat)^2)
+    variance <- sigma2_hat / (n * p_hat * (1 - p_hat)) + tss / (n * (n - 1L))
   }
 
   se       <- sqrt(variance)
@@ -310,6 +289,19 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 
 #' @keywords internal
 #' @noRd
+#' @importFrom dsBaseClient ds.glm
+.fit_arm_glm <- function(glm_formula, data_name, family, need_vcov, datasources) {
+  suppressWarnings(dsBaseClient::ds.glm(
+    formula     = glm_formula,
+    data        = data_name,
+    family      = family,
+    viewVarCov  = need_vcov,
+    datasources = datasources
+  ))
+}
+
+#' @keywords internal
+#' @noRd
 #' @importFrom DSI datashield.assign
 .add_study_id <- function(datasources, base_name, K, newobj) {
   for (k in seq_along(datasources)) {
@@ -324,7 +316,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 #' @importFrom DSI datashield.aggregate
 .localAte <- function(datasources, base_name, outcome_name, covariate_names,
                       treatment_name, alpha0, beta0, alpha1, beta1,
-                      compute_variance = TRUE, heterogeneous = FALSE,
+                      compute_variance = TRUE, heterogeneous = TRUE,
                       outcome_type = "continuous") {
   cally <- call(
     "localAteDS",
@@ -346,72 +338,30 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     n_k_1 = vapply(results, `[[`, 1L,  "n_k_1"),
     tau_k = vapply(results, `[[`, 1.0, "tau_k")
   )
+  if (compute_variance) {
+    out$s_k <- vapply(results, `[[`, 1.0, "s_k")
+  }
   if (compute_variance && outcome_type == "continuous") {
-    out$s_k_scalar <- vapply(results, `[[`, 1.0, "s_k_scalar")
-    out$rss_k      <- vapply(results, `[[`, 1.0, "rss_k")
+    out$rss_k <- vapply(results, `[[`, 1.0, "rss_k")
   }
-  if (compute_variance && outcome_type == "continuous" && heterogeneous) {
-    out$X_bar_sum <- Reduce("+", lapply(results, `[[`, "n_k_X_bar"))
-  }
-  if (compute_variance && outcome_type == "binary") {
-    out$g1_raw_k  <- lapply(results, `[[`, "g1_raw_k")
-    out$g0_raw_k  <- lapply(results, `[[`, "g0_raw_k")
-    out$s_k_delta <- vapply(results, `[[`, 1.0, "s_k_delta")
+  if (compute_variance && (heterogeneous || outcome_type == "binary")) {
+    n      <- sum(out$n_k)
+    out$g1 <-  Reduce("+", lapply(results, `[[`, "g1_raw_k")) / n
+    out$g0 <- -Reduce("+", lapply(results, `[[`, "g0_raw_k")) / n
   }
   out
 }
 
 #' @keywords internal
 #' @noRd
-.compute_variance <- function(n, n_1, rss_k, s_k_scalar, n_k, tau_k, ate_hat, d,
-                               heterogeneous = FALSE,
-                               vcov_treated = NULL, vcov_control = NULL,
-                               X_bar = NULL) {
-  sigma2_hat <- sum(rss_k) / (n - 2L * (d + 1L))
-
-  if (heterogeneous) {
-    # ds.glm's VarCovMatrix is the unscaled (G^(w))^{-1} = (X'^(w)T X'^(w))^{-1},
-    # so OLS noise = sigma2_hat * X_bar' (VarCovMatrix_1 + VarCovMatrix_0) X_bar'.
-    X_bar_prime <- c(1, X_bar)
-    first_term  <- sigma2_hat * as.numeric(
-      t(X_bar_prime) %*% (vcov_treated + vcov_control) %*% X_bar_prime
-    )
-  } else {
-    # Homogeneous closed form,
-    # i.e. when p_k ≡ p or μ_k ≡ μ.
-    p_hat      <- n_1 / n
-    first_term <- sigma2_hat / (n * p_hat * (1 - p_hat))
-  }
-
-  # Covariate-mean uncertainty: Δβ̂ᵀ Σ̂ Δβ̂ / n via parallel-axis decomposition.
-  # X̄_k · Δβ̂ − X̄ · Δβ̂ = τ̂_k − τ̂  (the α̂¹ − α̂⁰ terms cancel).
-  tss         <- sum(s_k_scalar + n_k * (tau_k - ate_hat)^2)
-  second_term <- tss / (n * (n - 1L))
-
-  first_term + second_term
-}
-
-
-#' @keywords internal
-#' @noRd
-.compute_variance_binary <- function(n, n_k, tau_k, ate_hat,
-                                     vcov_treated, vcov_control,
-                                     g1_raw_k, g0_raw_k,
-                                     s_k_delta) {
-  # Normalise gradient raw sums by global n; g0 carries a minus sign
-  g1 <-  Reduce("+", g1_raw_k) / n
-  g0 <- -Reduce("+", g0_raw_k) / n
-
-  # Parameter estimation term: g1' H1^{-1} g1 + g0' H0^{-1} g0
-  # For binomial (dispersion = 1), ds.glm's VarCovMatrix = H_w^{-1} = vcov(glm_fit)
-  param_term <- as.numeric(
-    crossprod(g1, vcov_treated %*% g1) + crossprod(g0, vcov_control %*% g0)
-  )
-
-  # Sampling term: parallel-axis decomposition — same form as the continuous case
-  tss       <- sum(s_k_delta + n_k * (tau_k - ate_hat)^2)
-  samp_term <- tss / (n * (n - 1L))
-
+.compute_variance_delta <- function(n, n_k, tau_k, ate_hat,
+                                    g_treated, g_control,
+                                    vcov_treated, vcov_control,
+                                    s_k) {
+  param_term <- as.numeric(g_treated %*% vcov_treated %*% g_treated) +
+                as.numeric(g_control %*% vcov_control %*% g_control)
+  tss        <- sum(s_k + n_k * (tau_k - ate_hat)^2)
+  samp_term  <- tss / (n * (n - 1L))
   param_term + samp_term
 }
 
