@@ -916,14 +916,14 @@ DSI::datashield.logout(conns_3)
 
 ## Example 5 — Binary outcomes
 
-The previous examples all concern **continuous outcomes** modeled by linear regression. This example demonstrates the same federated framework for **binary outcomes** — for instance, a 30-day mortality indicator or the occurrence of an adverse event — using logistic regression.
+The previous examples all concern **continuous outcomes** modeled by linear regression. This example demonstrates the same federated framework for **binary outcomes** using logistic regression.
 
 Two changes relative to Examples 1–3 are needed:
 
 1. `outcome_type = "binary"` switches `ds.glm` to `family = "binomial"` and replaces the linear plug-in formula with **G-computation** based on the logistic link.
-2. The delta-method variance now uses the Fisher information matrices and gradient vectors returned by the servers, rather than residual sums of squares (which are undefined for logistic models).
+2. The delta-method variance now uses the Fisher information matrices and gradient vectors returned by the servers, rather than residual sums of squares.
 
-Note that `study_effects = TRUE` is **not supported** for binary outcomes and is silently forced to `FALSE` with a warning. If study effects are present in a binary-outcome trial, they must be handled by including site dummies directly in `covariate_names`.
+Note that `study_effects = TRUE` is **not supported** for binary outcomes and is silently forced to `FALSE` with a warning.
 
 ### Mathematical Formulation
 
@@ -1012,9 +1012,7 @@ for (k in seq_len(K)) {
   srv_name <- paste0("dslite.server_bin", k)
   srv      <- DSLite::newDSLiteServer(tables = list(study_data = data_list_bin[[k]]))
   srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
-  srv$aggregateMethod("localAteDS",                        "localAteDS")
-  srv$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
-  srv$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")
+  srv$aggregateMethod("localAteDS", "localAteDS")
   assign(srv_name, srv, envir = .GlobalEnv)
 }
 
@@ -1070,39 +1068,15 @@ fit_treated_bin <- glm(formula_bin, data = pooled_bin[pooled_bin$W == 1, ],
 fit_control_bin <- glm(formula_bin, data = pooled_bin[pooled_bin$W == 0, ],
                        family = binomial)
 
-X_mat_bin <- as.matrix(pooled_bin[, c("X1", "X2")])
 pooled_ate_bin <- mean(
   predict(fit_treated_bin, newdata = pooled_bin, type = "response") -
   predict(fit_control_bin, newdata = pooled_bin, type = "response")
 )
-
-isTRUE(all.equal(pooled_ate_bin, federated_ate_bin$ate))
 ```
-
-### Note on `study_effects`
-
-Passing `study_effects = TRUE` alongside `outcome_type = "binary"` is not supported: the study-membership dummy augmentation is currently implemented only for the Gaussian arm models. The function emits a warning and falls back to the unadjusted estimator:
 
 ```{r, eval = TRUE}
-invisible(withCallingHandlers(
-  ds.EstimateAte(
-    datasources      = conns_bin,
-    base_name        = "base",
-    outcome_name     = "Y",
-    treatment_name   = "W",
-    covariate_names  = c("X1", "X2"),
-    outcome_type     = "binary",
-    study_effects    = TRUE,
-    compute_variance = FALSE
-  ),
-  warning = function(w) {
-    message("Warning caught: ", conditionMessage(w))
-    invokeRestart("muffleWarning")
-  }
-))
+isTRUE(all.equal(pooled_ate_bin, federated_ate_bin$ate))
 ```
-
-If study effects are present in a binary-outcome trial, include site dummies explicitly in `covariate_names` instead.
 
 ```{r, eval = TRUE}
 DSI::datashield.logout(conns_bin)
