@@ -56,8 +56,7 @@
 #'   the shifts.  The asymptotic variance is identical to the no-study-effects
 #'   case (Appendix B.4.2 of Khellaf et al., 2025); the degrees of freedom
 #'   adjust from n - 2(d+1) to n - 2(d+K) automatically.  Has no effect and
-#'   emits a warning when only one datasource is present, or when
-#'   \code{outcome_type = "binary"} (not currently supported for binary outcomes).
+#'   emits a warning when only one datasource is present.
 #' @param heterogeneous Logical. If \code{TRUE} (default), the leverage-corrected
 #'   OLS noise component of the variance is computed from the per-arm Gram inverses returned by
 #'   \code{ds.glm(viewVarCov = TRUE)}, using the global covariate mean assembled
@@ -67,16 +66,6 @@
 #'   centralised plug-in variance.  Set to \code{FALSE} to use the simpler homogeneous closed form,
 #'   which is exact only when treatment probabilities or covariate means are
 #'   constant across sites.  Has no effect when \code{compute_variance = FALSE}.
-#' @param outcome_type A character string, either \code{"continuous"} (default)
-#'   or \code{"binary"}. Controls the family used in \code{ds.glm}
-#'   (\code{"gaussian"} vs \code{"binomial"}) and the ATE formula in
-#'   \code{localAteDS} (linear projection vs G-computation). When
-#'   \code{"binary"} and \code{compute_variance = TRUE}, a delta-method
-#'   variance is returned using the local Fisher information matrices and
-#'   gradient vectors from each site; the \code{heterogeneous} argument has
-#'   no effect for binary outcomes (the Hessian-based formula handles
-#'   heterogeneity automatically).  Setting \code{outcome_type = "binary"}
-#'   forces \code{study_effects = FALSE} with a warning.
 #'
 #' @return When \code{compute_variance = TRUE}, a named list with seven
 #'   elements:
@@ -98,6 +87,7 @@
 #' \emph{Proceedings of the 28th International Conference on Artificial
 #' Intelligence and Statistics (AISTATS 2025)}.
 #' @importFrom DSI datashield.connections_find
+#' @importFrom dsBaseClient ds.glm ds.dataFrameSubset
 #' @examples
 #' \dontrun{
 #' conns <- DSI::datashield.login(logins = logindata, assign = TRUE)
@@ -125,8 +115,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
                            treatment_name, covariate_names,
                            compute_variance = TRUE,
                            study_effects = FALSE,
-                           heterogeneous = TRUE,
-                           outcome_type = "continuous") {
+                           heterogeneous = TRUE) {
   if (is.null(datasources)) {
     datasources <- DSI::datashield.connections_find()
   }
@@ -134,17 +123,9 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
   .check_datasources(datasources)
   .check_args(base_name, outcome_name, treatment_name, covariate_names)
 
-  outcome_type <- match.arg(outcome_type, c("continuous", "binary"))
-  family <- if (outcome_type == "continuous") "gaussian" else "binomial"
-
   # Study-effects setup ---------------------------------------------------------
 
   K <- length(datasources)
-
-  if (study_effects && outcome_type == "binary") {
-    cli::cli_warn("`study_effects = TRUE` is not supported for binary outcomes and will be ignored.")
-    study_effects <- FALSE
-  }
 
   if (study_effects && K == 1L) {
     cli::cli_warn("`study_effects = TRUE` has no effect with a single datasource.")
@@ -167,7 +148,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
   treatment_indicator <- paste0(base_name, "$", treatment_name)
   treated_name        <- paste0(base_name, "_treated")
   control_name        <- paste0(base_name, "_control")
-  glm_formula         <- paste0(outcome_name, " ~ ", paste(covariate_names, collapse = " + "))
+  glm_formula <- paste0(outcome_name, " ~ ", paste(covariate_names, collapse = " + "))
 
   dsBaseClient::ds.dataFrameSubset(
     df.name          = base_name,
@@ -189,10 +170,22 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 
   # Federated arm-specific OLS --------------------------------------------------
 
-  need_vcov <- compute_variance && (outcome_type == "binary" || heterogeneous)
+  need_vcov <- compute_variance && heterogeneous
 
-  model_treated <- .fit_arm_glm(glm_formula, treated_name, family, need_vcov, datasources)
-  model_control <- .fit_arm_glm(glm_formula, control_name, family, need_vcov, datasources)
+  model_treated <- suppressWarnings(dsBaseClient::ds.glm(
+    formula     = glm_formula,
+    data        = treated_name,
+    family      = "gaussian",
+    viewVarCov  = need_vcov,
+    datasources = datasources
+  ))
+  model_control <- suppressWarnings(dsBaseClient::ds.glm(
+    formula     = glm_formula,
+    data        = control_name,
+    family      = "gaussian",
+    viewVarCov  = need_vcov,
+    datasources = datasources
+  ))
 
   .check_glm_validity(model_treated, model_control, covariate_names)
 
@@ -219,8 +212,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     alpha1           = alpha1,
     beta1            = beta1,
     compute_variance = compute_variance,
-    heterogeneous    = heterogeneous,
-    outcome_type     = outcome_type
+    heterogeneous    = heterogeneous
   )
 
   n_k   <- local_results$n_k
@@ -248,10 +240,9 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     ))
   }
 
-  sigma2_hat <- if (outcome_type == "binary") 1.0
-               else sum(local_results$rss_k) / (n - 2L * (d + 1L))
+  sigma2_hat <- sum(local_results$rss_k) / (n - 2L * (d + 1L))
 
-  if (heterogeneous || outcome_type == "binary") {
+  if (heterogeneous) {
     variance <- .compute_variance_delta(
       n            = n,
       n_k          = n_k,
@@ -289,19 +280,6 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 
 #' @keywords internal
 #' @noRd
-#' @importFrom dsBaseClient ds.glm
-.fit_arm_glm <- function(glm_formula, data_name, family, need_vcov, datasources) {
-  suppressWarnings(dsBaseClient::ds.glm(
-    formula     = glm_formula,
-    data        = data_name,
-    family      = family,
-    viewVarCov  = need_vcov,
-    datasources = datasources
-  ))
-}
-
-#' @keywords internal
-#' @noRd
 #' @importFrom DSI datashield.assign
 .add_study_id <- function(datasources, base_name, K, newobj) {
   for (k in seq_along(datasources)) {
@@ -316,8 +294,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 #' @importFrom DSI datashield.aggregate
 .localAte <- function(datasources, base_name, outcome_name, covariate_names,
                       treatment_name, alpha0, beta0, alpha1, beta1,
-                      compute_variance = TRUE, heterogeneous = TRUE,
-                      outcome_type = "continuous") {
+                      compute_variance = TRUE, heterogeneous = TRUE) {
   cally <- call(
     "localAteDS",
     base_name, outcome_name,
@@ -328,8 +305,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     as.character(alpha1),
     paste(as.character(beta1), collapse = ","),
     compute_variance,
-    heterogeneous,
-    outcome_type
+    heterogeneous
   )
   results <- DSI::datashield.aggregate(conns = datasources, expr = cally)
 
@@ -339,12 +315,10 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     tau_k = vapply(results, `[[`, 1.0, "tau_k")
   )
   if (compute_variance) {
-    out$s_k <- vapply(results, `[[`, 1.0, "s_k")
-  }
-  if (compute_variance && outcome_type == "continuous") {
+    out$s_k   <- vapply(results, `[[`, 1.0, "s_k")
     out$rss_k <- vapply(results, `[[`, 1.0, "rss_k")
   }
-  if (compute_variance && (heterogeneous || outcome_type == "binary")) {
+  if (compute_variance && heterogeneous) {
     n      <- sum(out$n_k)
     out$g1 <-  Reduce("+", lapply(results, `[[`, "g1_raw_k")) / n
     out$g0 <- -Reduce("+", lapply(results, `[[`, "g0_raw_k")) / n

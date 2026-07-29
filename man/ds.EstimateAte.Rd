@@ -12,8 +12,7 @@ ds.EstimateAte(
   covariate_names,
   compute_variance = TRUE,
   study_effects = FALSE,
-  heterogeneous = TRUE,
-  outcome_type = "continuous"
+  heterogeneous = TRUE
 )
 }
 \arguments{
@@ -51,8 +50,7 @@ and the federated GLMs are fitted on the augmented design matrix, absorbing
 the shifts.  The asymptotic variance is identical to the no-study-effects
 case (Appendix B.4.2 of Khellaf et al., 2025); the degrees of freedom
 adjust from n - 2(d+1) to n - 2(d+K) automatically.  Has no effect and
-emits a warning when only one datasource is present, or when
-\code{outcome_type = "binary"} (not currently supported for binary outcomes).}
+emits a warning when only one datasource is present.}
 
 \item{heterogeneous}{Logical. If \code{TRUE} (default), the leverage-corrected
 OLS noise component of the variance is computed from the per-arm Gram inverses returned by
@@ -63,17 +61,6 @@ probabilities across sites) and is algebraically identical to the
 centralised plug-in variance.  Set to \code{FALSE} to use the simpler homogeneous closed form,
 which is exact only when treatment probabilities or covariate means are
 constant across sites.  Has no effect when \code{compute_variance = FALSE}.}
-
-\item{outcome_type}{A character string, either \code{"continuous"} (default)
-or \code{"binary"}. Controls the family used in \code{ds.glm}
-(\code{"gaussian"} vs \code{"binomial"}) and the ATE formula in
-\code{localAteDS} (linear projection vs G-computation). When
-\code{"binary"} and \code{compute_variance = TRUE}, a delta-method
-variance is returned using the local Fisher information matrices and
-gradient vectors from each site; the \code{heterogeneous} argument has
-no effect for binary outcomes (the Hessian-based formula handles
-heterogeneity automatically).  Setting \code{outcome_type = "binary"}
-forces \code{study_effects = FALSE} with a warning.}
 }
 \value{
 When \code{compute_variance = TRUE}, a named list with seven
