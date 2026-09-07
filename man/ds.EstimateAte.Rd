@@ -2,7 +2,7 @@
 % Please edit documentation in R/ds.EstimateAte.R
 \name{ds.EstimateAte}
 \alias{ds.EstimateAte}
-\title{Estimate average treatment effect in federated RCT data}
+\title{Estimate ATE from multiple RCTs}
 \usage{
 ds.EstimateAte(
   datasources = NULL,
@@ -79,10 +79,11 @@ When \code{compute_variance = FALSE}, a named list with four elements:
 The structure is the same regardless of \code{study_effects}.
 }
 \description{
-Client-side function that orchestrates the federated computation of an
-average treatment effect (ATE) and, optionally, its variance
-and confidence interval, for data collected in a randomised controlled trial
-(RCT) setting using DataSHIELD.
+Client-side function that orchestrates the federated estimation of an
+average treatment effect (ATE) — and, optionally, its variance and
+confidence interval — from multiple independent RCTs, each held on a
+separate data server. Randomisation holds within each study; the combined
+dataset is not itself a single RCT.
 }
 \details{
 The function fits separate arm-specific linear models via

@@ -1,9 +1,10 @@
-#' Estimate average treatment effect in federated RCT data
+#' Estimate ATE from multiple RCTs
 #'
-#' Client-side function that orchestrates the federated computation of an
-#' average treatment effect (ATE) and, optionally, its variance
-#' and confidence interval, for data collected in a randomised controlled trial
-#' (RCT) setting using DataSHIELD.
+#' Client-side function that orchestrates the federated estimation of an
+#' average treatment effect (ATE) — and, optionally, its variance and
+#' confidence interval — from multiple independent RCTs, each held on a
+#' separate data server. Randomisation holds within each study; the combined
+#' dataset is not itself a single RCT.
 #'
 #' The function fits separate arm-specific linear models via
 #' \code{\link[dsBaseClient]{ds.glm}}, broadcasts the pooled coefficients back
@@ -240,6 +241,8 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     ))
   }
 
+  # When study_effects = TRUE, d already includes the K-1 dummies, so the
+  # denominator automatically becomes n - 2(d_orig + K) as required.
   sigma2_hat <- sum(local_results$rss_k) / (n - 2L * (d + 1L))
 
   if (heterogeneous) {
@@ -320,8 +323,12 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
   }
   if (compute_variance && heterogeneous) {
     n      <- sum(out$n_k)
-    out$g1 <-  Reduce("+", lapply(results, `[[`, "g1_raw_k")) / n
-    out$g0 <- -Reduce("+", lapply(results, `[[`, "g0_raw_k")) / n
+    # Both gradients equal (1, x_bar): d_tau/d_theta1 = +(1, x_bar) and
+    # d_tau/d_theta0 = -(1, x_bar), but the sign cancels in the quadratic form
+    # g^T V g, so we use the same positive vector for both arms.
+    g_bar  <- Reduce("+", lapply(results, `[[`, "g1_raw_k")) / n
+    out$g1 <- g_bar
+    out$g0 <- g_bar
   }
   out
 }

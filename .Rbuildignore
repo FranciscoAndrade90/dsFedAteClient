@@ -4,3 +4,5 @@
 ^dev$
 ^doc$
 ^Meta$
+^vignettes/.*\.html$
+^vignettes/\.DS_Store$

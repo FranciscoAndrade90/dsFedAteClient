@@ -1,21 +1,26 @@
 Package: dsRctFedClient
-Title: Orchestrate The Federated Computation Of ATE
-Version: 0.0.0.9000
+Title: Federated Average Treatment Effect Estimation Across Multiple RCTs
+Version: 0.1.0
 Authors@R: 
   c(person(given = "Francisco",
            family = "Andrade",
            role = c("aut", "cre"),
-           email = "francisco.de-lima-andrade@inria.fr",
-           ),
+           email = "francisco.de-lima-andrade@inria.fr"),
     person(given = "Julie",
            family = "Josse",
            role = "aut"))
-Description: Based on “Federated Causal Inference: Multi-Study ATE Estimation beyond Meta-Analysis” (R. Khellaf, A. Bellet, and J. Josse, 2025), this package implements a DATASHIELD client side package that orchestrates the federated computation of the average treatment effect using data collected in a randomized controlled trial (RCT) setting.
+Description: Client-side DataSHIELD package that orchestrates the federated
+    estimation of the average treatment effect (ATE) across multiple independent
+    randomised controlled trials (RCTs), each held on a separate data server.
+    Implements the generalised difference estimator of Khellaf, Bellet and Josse
+    (2025) <doi:10.48550/arXiv.2404.18962>, including delta-method variance
+    estimation and optional adjustment for study-specific intercept shifts.
+URL: https://github.com/FranciscoAndrade90/dsRctFedClient
+BugReports: https://github.com/FranciscoAndrade90/dsRctFedClient/issues
 License: AGPL (>= 3)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 8.0.0
-Additional_repositories: https://cran.obiba.org/
 Imports:
     cli,
     DSI,
@@ -29,4 +34,5 @@ Suggests:
     MASS,
     rmarkdown,
     testthat (>= 3.0.0)
+Config/testthat/edition: 3
 VignetteBuilder: knitr

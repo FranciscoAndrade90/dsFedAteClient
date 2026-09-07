@@ -26,6 +26,8 @@ knitr::opts_hooks$set(eval = function(options) {
 ```
 
 ```{r setup, eval = FALSE}
+# This chunk is intentionally not evaluated; actual library loading happens
+# in the first example chunk below so that eval_chunks guards it correctly.
 library(dsRctFedClient)
 ```
 ## Description
@@ -218,7 +220,7 @@ for (k in 1:K) {
   server_name <- paste0("dslite.server", k)
 
   # Create server k holding the k-th data frame
-  server_obj <- newDSLiteServer(
+  server_obj <- DSLite::newDSLiteServer(
     tables = list(study_data = data_list[[k]])
   )
 
