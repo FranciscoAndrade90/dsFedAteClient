@@ -15,8 +15,6 @@ Description: Client-side DataSHIELD package that orchestrates the federated
     Implements the generalised difference estimator of Khellaf, Bellet and Josse
     (2025) <doi:10.48550/arXiv.2404.18962>, including delta-method variance
     estimation and optional adjustment for study-specific intercept shifts.
-URL: https://github.com/FranciscoAndrade90/dsRctFedClient
-BugReports: https://github.com/FranciscoAndrade90/dsRctFedClient/issues
 License: AGPL (>= 3)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)

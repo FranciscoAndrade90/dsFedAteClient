@@ -8,21 +8,20 @@
 #'
 #' The function fits separate arm-specific linear models via
 #' \code{\link[dsBaseClient]{ds.glm}}, broadcasts the pooled coefficients back
-#' to the servers, and collects local statistics in a single additional
-#' aggregate call (\code{localAteDS}).  Setting \code{compute_variance = FALSE}
-#' limits the information returned by each server to the three scalars strictly
-#' needed for the point estimate (\eqn{n_k}, \eqn{n_k^{(1)}},
-#' \eqn{\hat\tau_k}), omitting the residual sum of squares and projected scatter
-#' that are required for the variance but constitute additional disclosure.
+#' to the servers, and collects local statistics via a single aggregate call
+#' to \code{localAteDS}.  When \code{compute_variance = FALSE}, only the three
+#' scalars strictly needed for the point estimate are returned per server
+#' (\eqn{n_k}, \eqn{n_k^{(1)}}, \eqn{\hat\tau_k}), omitting the residual
+#' sum of squares and projected scatter that constitute additional disclosure.
 #'
-#' \strong{Server-side objects created.}  The function always creates two
-#' symbols on every server: \code{<base_name>_treated} and
-#' \code{<base_name>_control} (the arm-specific subsets used by
-#' \code{ds.glm}).  When \code{study_effects = TRUE}, a third symbol
-#' \code{<base_name>_study_adj} is also created, holding the original data
-#' frame augmented with the K-1 integer study dummy columns.  All three
-#' symbols persist in the server workspace after the function returns,
-#' consistent with standard DataSHIELD practice.  The caller's original
+#' \strong{Server-side objects created.}
+#' Two symbols are always created per server: \code{<base>_treated}
+#' (treated-arm subset) and \code{<base>_control} (control-arm subset),
+#' both used by \code{ds.glm}.  When \code{study_effects = TRUE} is set,
+#' a third symbol is also created: \code{<base>_study_adj}, holding the
+#' data frame augmented with the K-1 study dummy columns.  All three
+#' persist in the server workspace after the function returns, consistent
+#' with standard DataSHIELD practice.  The caller's original
 #' \code{base_name} object is never modified.
 #'
 #' When \code{compute_variance = TRUE} (the default), a delta-method variance
@@ -30,7 +29,7 @@
 #' depends on the \code{heterogeneous} argument; see below.
 #'
 #' @param datasources A list of \code{\link[DSI]{DSConnection-class}} objects.
-#'   If \code{NULL}, uses \code{\link[DSI]{datashield.connections_find}}.
+#'   If \code{NULL}, the default connections are used.
 #' @param base_name A character string naming the server-side data frame
 #'   (must be identical across all servers).
 #' @param outcome_name A character string naming the outcome variable.
@@ -51,35 +50,37 @@
 #'   directly shift the outcome.  If \code{TRUE}, the study-effects model is
 #'   used (potential outcome model (16) of Khellaf et al., 2025): an arrow
 #'   H -> Y is present, so site-specific intercept shifts confound the estimate
-#'   when treatment probabilities also vary across sites.  \code{addStudyIdDS()} appends K-1 integer dummy columns
-#'   (\code{study_id2}, \ldots, \code{study_idK}) to each server's data frame,
-#'   and the federated GLMs are fitted on the augmented design matrix, absorbing
+#'   when treatment probabilities also vary across sites.
+#'   K-1 integer dummy columns (\code{study_id2}, \ldots, \code{study_idK})
+#'   are appended to each server's data frame by \code{addStudyIdDS()}, and
+#'   the federated GLMs are fitted on the augmented design matrix, absorbing
 #'   the shifts.  The asymptotic variance is identical to the no-study-effects
 #'   case (Appendix B.4.2 of Khellaf et al., 2025); the degrees of freedom
 #'   adjust from n - 2(d+1) to n - 2(d+K) automatically.  Has no effect and
 #'   emits a warning when only one datasource is present.
 #' @param heterogeneous Logical. If \code{TRUE} (default), the leverage-corrected
-#'   OLS noise component of the variance is computed from the per-arm Gram inverses returned by
+#'   OLS noise component is computed from the per-arm Gram inverses returned by
 #'   \code{ds.glm(viewVarCov = TRUE)}, using the global covariate mean assembled
 #'   from per-server column sums returned by \code{localAteDS()}.  This is valid
 #'   under full heterogeneity (different covariate distributions and treatment
 #'   probabilities across sites) and is algebraically identical to the
-#'   centralised plug-in variance.  Set to \code{FALSE} to use the simpler homogeneous closed form,
-#'   which is exact only when treatment probabilities or covariate means are
-#'   constant across sites.  Has no effect when \code{compute_variance = FALSE}.
+#'   centralised plug-in variance.  Set to \code{FALSE} to use the simpler
+#'   homogeneous closed form, which is exact only when treatment probabilities
+#'   or covariate means are constant across sites.
+#'   Has no effect when \code{compute_variance = FALSE}.
 #'
-#' @return When \code{compute_variance = TRUE}, a named list with seven
-#'   elements:
+#' @return A named list. When \code{compute_variance = TRUE} (the default),
+#'   seven elements:
 #'   \describe{
 #'     \item{ate}{Federated ATE estimate \eqn{\hat\tau}.}
 #'     \item{variance}{Delta-method variance estimate \eqn{\hat V(\hat\tau)}.}
-#'     \item{ci_lower}{Lower bound of the approximate 95-percent confidence interval.}
-#'     \item{ci_upper}{Upper bound of the approximate 95-percent confidence interval.}
+#'     \item{ci_lower}{Lower 95-percent confidence interval bound.}
+#'     \item{ci_upper}{Upper 95-percent confidence interval bound.}
 #'     \item{n_total}{Total sample size across all servers.}
 #'     \item{n_k}{Named integer vector of per-server sample sizes.}
 #'     \item{ate_k}{Named numeric vector of per-server local ATE estimates.}
 #'   }
-#'   When \code{compute_variance = FALSE}, a named list with four elements:
+#'   When \code{compute_variance = FALSE}, four elements:
 #'   \code{ate}, \code{n_total}, \code{n_k}, \code{ate_k}.
 #'   The structure is the same regardless of \code{study_effects}.
 #' @references
@@ -94,19 +95,19 @@
 #' conns <- DSI::datashield.login(logins = logindata, assign = TRUE)
 #' # Full result with variance and CI
 #' result <- ds.EstimateAte(
-#'   datasources     = conns,
-#'   base_name       = "study_data",
-#'   outcome_name    = "Y",
-#'   treatment_name  = "W",
+#'   datasources = conns,
+#'   base_name = "study_data",
+#'   outcome_name = "Y",
+#'   treatment_name = "W",
 #'   covariate_names = c("X1", "X2")
 #' )
 #' # Point estimate only (less disclosure)
 #' result_ate <- ds.EstimateAte(
-#'   datasources      = conns,
-#'   base_name        = "study_data",
-#'   outcome_name     = "Y",
-#'   treatment_name   = "W",
-#'   covariate_names  = c("X1", "X2"),
+#'   datasources = conns,
+#'   base_name = "study_data",
+#'   outcome_name = "Y",
+#'   treatment_name = "W",
+#'   covariate_names = c("X1", "X2"),
 #'   compute_variance = FALSE
 #' )
 #' DSI::datashield.logout(conns)
