@@ -26,3 +26,23 @@
     )
   }
 }
+
+#' @keywords internal
+#' @noRd
+#' @importFrom cli cli_abort
+.check_args <- function(base_name, outcome_name, treatment_name, covariate_names) {
+  .check_string(base_name,    "base_name")
+  .check_string(outcome_name, "outcome_name")
+  .check_string(treatment_name, "treatment_name")
+  if (is.null(covariate_names)) {
+    cli::cli_abort("`covariate_names` must not be NULL")
+  }
+  if (!is.character(covariate_names) || length(covariate_names) == 0L) {
+    cli::cli_abort(
+      c(
+        "x" = "`covariate_names` must be a non-empty character vector",
+        "i" = "You provided an object of class {class(covariate_names)}"
+      )
+    )
+  }
+}

@@ -14,10 +14,11 @@ knitr::opts_chunk$set(
   comment = "#>"
 )
 
-eval_chunks <- requireNamespace("dsRctFed",     quietly = TRUE) &&
-               requireNamespace("MASS",         quietly = TRUE) &&
-               requireNamespace("DSLite",       quietly = TRUE) &&
-               requireNamespace("dsBaseClient", quietly = TRUE)
+eval_chunks <- requireNamespace("dsRctFed",       quietly = TRUE) &&
+               requireNamespace("dsRctFedClient", quietly = TRUE) &&
+               requireNamespace("MASS",           quietly = TRUE) &&
+               requireNamespace("DSLite",         quietly = TRUE) &&
+               requireNamespace("dsBaseClient",   quietly = TRUE)
 
 knitr::opts_hooks$set(eval = function(options) {
   if (isTRUE(options$eval) && !eval_chunks) options$eval <- FALSE
@@ -38,6 +39,7 @@ Federated learning offers a principled solution to this tension. Rather than cen
 
 This vignette demonstrates how to use the package to estimate the ATE across multiple RCTs in exactly this federated setting. The package is built on top of **DataSHIELD**, leveraging `dsBaseClient::ds.glm` to fit two federated linear regressions — one for each treatment arm — directly on the decentralized data. The resulting model parameters are then shared back, each site computes its local ATE via the Plug-in G-Formula, and these estimates are aggregated into a global ATE, following the federated estimator of @khellaf2025. We can think of this method as conducting an individual patient data (IPD) meta-analysis, but without pooling the raw data into a central location. Instead, the data remains distributed across participating sites.
 
+**Organisation.** The vignette is structured as follows. The Background section introduces the causal and statistical framework, the federated learning setup, and the local testing infrastructure used throughout. Four worked examples then illustrate the method under progressively richer conditions: Example 1 covers the baseline homogeneous setting and verifies that the federated estimator matches the centralised one; Example 2 shows how DataSHIELD's disclosure controls interact with the estimation and when they block it; Example 3 extends the analysis to heterogeneous covariate distributions across sites; and Example 4 addresses study-specific intercept shifts that would otherwise confound the estimator.
 
 ## How to install
 
@@ -66,7 +68,7 @@ We posit two potential outcomes: $Y_{ki}^{(0)}$, the outcome that *would* be obs
 **Consistency** bridges the counterfactual notation and the observed data: $Y_{ki} = W_{ki}\,Y_{ki}^{(1)} + (1-W_{ki})\,Y_{ki}^{(0)}$. It simply states that what we observe is the potential outcome corresponding to the treatment actually received. Rather than an independent assumption, this follows directly from the single-version requirement of SUTVA.
 
 Since all examples concern **randomised controlled trials (RCTs)**, treatment is assigned independently of potential outcomes at every site,
-$$W_{ki} \perp\!\!\!\perp \bigl(Y_{ki}^{(0)},\, Y_{ki}^{(1)}\bigr),$$
+$$W_{ki} \perp\!\!\!\perp \bigl(Y_{ki}^{(0)},\, Y_{ki}^{(1)}\bigr) \mid H = k, \quad \text{for all } k \in \{1, \ldots, K\},$$
 and positivity holds ($0 < p_k < 1$ for all $k$). Together, these conditions ensure that the ATE,
 $$\tau^\star = \mathbb{E}\!\left[Y^{(1)} - Y^{(0)}\right],$$
 is nonparametrically identified, i.e., it can be estimated from the observed data. We estimate $\tau^\star$ via the **plug-in G-formula**: arm-specific outcome models are fitted on each treatment arm across all participating sites; each site $k$ then computes its local ATE $\hat\tau_k$ using the shared model parameters, and the global estimate is the sample-size-weighted average,

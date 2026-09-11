@@ -29,17 +29,19 @@ indicator.}
 
 \item{covariate_names}{A character vector of covariate names.}
 
-\item{compute_variance}{Logical. If \code{TRUE} (default), each server
-returns additional statistics beyond the point estimate (residual sum of
-squares and projected scatter scalar), and — when \code{heterogeneous = TRUE}
-— the per-arm Gram inverses are obtained by calling \code{ds.glm} with
+\item{compute_variance}{Logical. If \code{TRUE} (default), the function
+returns a delta-method variance estimate and a 95\% confidence interval in
+addition to the ATE point estimate.  To compute these, each server returns
+additional statistics (residual sum of squares and projected scatter
+scalar), and — when \code{heterogeneous = TRUE} — the per-arm Gram
+inverses are obtained by calling \code{ds.glm} with
 \code{viewVarCov = TRUE}, and each server additionally returns covariate
 column sums.  All of this constitutes an extra disclosure step.  Set to
-\code{FALSE} to request only the point estimate and minimise the
+\code{FALSE} to return only the ATE point estimate and minimise the
 information shared by each server.}
 
 \item{study_effects}{Logical. If \code{FALSE} (default), the no-study-effects
-model is assumed (potential outcome model (2) of Khellaf et al., 2025):
+model is assumed (potential outcome model defined in equation (2) of Khellaf et al., 2025):
 there is no arrow H -> Y in the DAG, meaning study membership does not
 directly shift the outcome.  If \code{TRUE}, the study-effects model is
 used (potential outcome model (16) of Khellaf et al., 2025): an arrow
@@ -53,19 +55,21 @@ case (Appendix B.4.2 of Khellaf et al., 2025); the degrees of freedom
 adjust from n - 2(d+1) to n - 2(d+K) automatically.  Has no effect and
 emits a warning when only one datasource is present.}
 
-\item{heterogeneous}{Logical. If \code{TRUE} (default), the leverage-corrected
-OLS noise component is computed from the per-arm Gram inverses returned by
-\code{ds.glm(viewVarCov = TRUE)}, using the global covariate mean assembled
-from per-server column sums returned by \code{localAteDS()}.  This is valid
-under full heterogeneity (different covariate distributions and treatment
-probabilities across sites) and is algebraically identical to the
-centralised plug-in variance.  Set to \code{FALSE} to use the simpler
-homogeneous closed form, which is exact only when treatment probabilities
-or covariate means are constant across sites.
+\item{heterogeneous}{Logical. Controls which variance formula is used.
+\code{TRUE} (default) makes no assumption about the participating RCTs:
+each site may have a different covariate distribution and a different
+treatment probability.  The leverage-corrected OLS noise component is
+computed from the per-arm Gram inverses returned by
+\code{ds.glm(viewVarCov = TRUE)}, using the global covariate mean
+assembled from per-server column sums returned by \code{localAteDS()}.
+\code{FALSE} assumes that all RCTs share the same covariate distribution
+and uses a simpler closed-form variance that is exact only under this
+homogeneity assumption (constant covariate means and treatment
+probabilities across sites).
 Has no effect when \code{compute_variance = FALSE}.}
 }
 \value{
-A named list. When \code{compute_variance = TRUE} (the default),
+A list. When \code{compute_variance = TRUE} (the default),
 seven elements:
 \describe{
 \item{ate}{Federated ATE estimate \eqn{\hat\tau}.}
@@ -73,8 +77,8 @@ seven elements:
 \item{ci_lower}{Lower 95-percent confidence interval bound.}
 \item{ci_upper}{Upper 95-percent confidence interval bound.}
 \item{n_total}{Total sample size across all servers.}
-\item{n_k}{Named integer vector of per-server sample sizes.}
-\item{ate_k}{Named numeric vector of per-server local ATE estimates.}
+\item{n_k}{Integer vector of per-server sample sizes.}
+\item{ate_k}{Numeric vector of per-server local ATE estimates.}
 }
 When \code{compute_variance = FALSE}, four elements:
 \code{ate}, \code{n_total}, \code{n_k}, \code{ate_k}.
@@ -97,17 +101,17 @@ scalars strictly needed for the point estimate are returned per server
 sum of squares and projected scatter that constitute additional disclosure.
 
 \strong{Server-side objects created.}
-Two symbols are always created per server: \code{<base>_treated}
-(treated-arm subset) and \code{<base>_control} (control-arm subset),
+Two symbols are always created per server: \code{base_name_treated}
+(treated-arm subset) and \code{base_name_control} (control-arm subset),
 both used by \code{ds.glm}.  When \code{study_effects = TRUE} is set,
-a third symbol is also created: \code{<base>_study_adj}, holding the
+a third symbol is also created: \code{base_name_study_adj}, holding the
 data frame augmented with the K-1 study dummy columns.  All three
-persist in the server workspace after the function returns, consistent
-with standard DataSHIELD practice.  The caller's original
+persist in the server workspace after the function returns, as is typical
+for DataSHIELD assign operations.  The caller's original
 \code{base_name} object is never modified.
 
 When \code{compute_variance = TRUE} (the default), a delta-method variance
-estimate and 95\\% confidence interval are also returned.  The formula used
+estimate and 95\% confidence interval are also returned.  The formula used
 depends on the \code{heterogeneous} argument; see below.
 }
 \examples{
