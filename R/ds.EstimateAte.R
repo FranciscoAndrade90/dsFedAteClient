@@ -72,7 +72,7 @@
 #'   homogeneity assumption (constant covariate means and treatment
 #'   probabilities across sites).
 #'   Has no effect when \code{compute_variance = FALSE}.
-#' @param heterogeneous_arms Logical. If \code{FALSE} (default), the noise
+#' @param heteroscedastic_arms Logical. If \code{FALSE} (default), the noise
 #'   variance \eqn{\sigma^2} is assumed identical in both arms and estimated
 #'   from the pooled residual sum of squares across treated and control
 #'   observations.  If \code{TRUE}, arm-specific noise variances
@@ -129,7 +129,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
                            compute_variance = TRUE,
                            study_effects = FALSE,
                            heterogeneous = TRUE,
-                           heterogeneous_arms = FALSE) {
+                           heteroscedastic_arms = FALSE) {
   if (is.null(datasources)) {
     datasources <- DSI::datashield.connections_find()
   }
@@ -258,7 +258,7 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
   # denominator automatically becomes n - 2(d_orig + K) as required.
   # The same logic applies to arm-specific df: n_w - (d + 1).
   n_0 <- n - n_1
-  if (heterogeneous_arms) {
+  if (heteroscedastic_arms) {
     sigma2_hat_1 <- sum(local_results$rss_k_1) / (n_1 - (d + 1L))
     sigma2_hat_0 <- sum(local_results$rss_k_0) / (n_0 - (d + 1L))
   } else {
@@ -274,16 +274,16 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
       ate_hat      = ate_hat,
       g_treated    = local_results$g1,
       g_control    = local_results$g0,
-      vcov_treated = if (heterogeneous_arms) sigma2_hat_1 * model_treated$VarCovMatrix
+      vcov_treated = if (heteroscedastic_arms) sigma2_hat_1 * model_treated$VarCovMatrix
                      else                    sigma2_hat   * model_treated$VarCovMatrix,
-      vcov_control = if (heterogeneous_arms) sigma2_hat_0 * model_control$VarCovMatrix
+      vcov_control = if (heteroscedastic_arms) sigma2_hat_0 * model_control$VarCovMatrix
                      else                    sigma2_hat   * model_control$VarCovMatrix,
       s_k          = local_results$s_k
     )
   } else {
     p_hat <- n_1 / n
     tss   <- sum(local_results$s_k + n_k * (tau_k - ate_hat)^2)
-    if (heterogeneous_arms) {
+    if (heteroscedastic_arms) {
       variance <- sigma2_hat_1 / (n * p_hat) + sigma2_hat_0 / (n * (1 - p_hat)) +
                   tss / (n * (n - 1L))
     } else {

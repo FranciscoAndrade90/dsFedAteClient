@@ -511,7 +511,7 @@ cat(sprintf("Unadjusted ATE: %.4f   bias: %.4f   (true ATE: %.4f)\n",
 
 ### Adjusted — unbiased
 
-`heterogeneous_arms = TRUE` estimates arm-specific noise variances $\hat\sigma_0^2$ and
+`heteroscedastic_arms = TRUE` estimates arm-specific noise variances $\hat\sigma_0^2$ and
 $\hat\sigma_1^2$ separately, giving a correctly specified standard error when
 $\sigma_0 \neq \sigma_1$.
 
@@ -524,7 +524,7 @@ federated_ate_adj <- ds.EstimateAte(
   covariate_names    = covariate_names,
   study_effects      = TRUE,
   heterogeneous      = TRUE,
-  heterogeneous_arms = TRUE
+  heteroscedastic_arms = TRUE
 )
 ```
 

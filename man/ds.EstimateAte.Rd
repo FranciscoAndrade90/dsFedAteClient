@@ -13,7 +13,7 @@ ds.EstimateAte(
   compute_variance = TRUE,
   study_effects = FALSE,
   heterogeneous = TRUE,
-  heterogeneous_arms = FALSE
+  heteroscedastic_arms = FALSE
 )
 }
 \arguments{
@@ -69,7 +69,7 @@ homogeneity assumption (constant covariate means and treatment
 probabilities across sites).
 Has no effect when \code{compute_variance = FALSE}.}
 
-\item{heterogeneous_arms}{Logical. If \code{FALSE} (default), the noise
+\item{heteroscedastic_arms}{Logical. If \code{FALSE} (default), the noise
 variance \eqn{\sigma^2} is assumed identical in both arms and estimated
 from the pooled residual sum of squares across treated and control
 observations.  If \code{TRUE}, arm-specific noise variances
