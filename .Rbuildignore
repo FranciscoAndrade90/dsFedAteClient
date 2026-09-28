@@ -5,4 +5,7 @@
 ^doc$
 ^Meta$
 ^vignettes/.*\.html$
+^vignettes/.*\.pdf$
+^vignettes/.*\.log$
+^vignettes/.*\.png$
 ^vignettes/\.DS_Store$
