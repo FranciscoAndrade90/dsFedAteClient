@@ -1,3 +1,13 @@
+# dsRctFedClient 0.1.1
+
+## Changes
+
+* `ds.EstimateAte()` gains a `heterogeneous_arms` argument (default `FALSE`).
+  When `TRUE`, arm-specific noise variances \eqn{\sigma_1^2} and
+  \eqn{\sigma_0^2} are estimated from each arm's residual sum of squares rather
+  than a pooled \eqn{\sigma^2}, and the variance formula is adjusted
+  accordingly in both the delta-method and homogeneous closed-form branches.
+
 # dsRctFedClient 0.1.0
 
 Initial release.

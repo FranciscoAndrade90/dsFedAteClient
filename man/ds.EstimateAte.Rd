@@ -12,7 +12,8 @@ ds.EstimateAte(
   covariate_names,
   compute_variance = TRUE,
   study_effects = FALSE,
-  heterogeneous = TRUE
+  heterogeneous = TRUE,
+  heterogeneous_arms = FALSE
 )
 }
 \arguments{
@@ -67,6 +68,14 @@ and uses a simpler closed-form variance that is exact only under this
 homogeneity assumption (constant covariate means and treatment
 probabilities across sites).
 Has no effect when \code{compute_variance = FALSE}.}
+
+\item{heterogeneous_arms}{Logical. If \code{FALSE} (default), the noise
+variance \eqn{\sigma^2} is assumed identical in both arms and estimated
+from the pooled residual sum of squares across treated and control
+observations.  If \code{TRUE}, arm-specific noise variances
+\eqn{\sigma_1^2} and \eqn{\sigma_0^2} are estimated separately from each
+arm's residual sum of squares, and the variance formula is adjusted
+accordingly.  Has no effect when \code{compute_variance = FALSE}.}
 }
 \value{
 A list. When \code{compute_variance = TRUE} (the default),

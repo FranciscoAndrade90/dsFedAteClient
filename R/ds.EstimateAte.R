@@ -72,6 +72,13 @@
 #'   homogeneity assumption (constant covariate means and treatment
 #'   probabilities across sites).
 #'   Has no effect when \code{compute_variance = FALSE}.
+#' @param heterogeneous_arms Logical. If \code{FALSE} (default), the noise
+#'   variance \eqn{\sigma^2} is assumed identical in both arms and estimated
+#'   from the pooled residual sum of squares across treated and control
+#'   observations.  If \code{TRUE}, arm-specific noise variances
+#'   \eqn{\sigma_1^2} and \eqn{\sigma_0^2} are estimated separately from each
+#'   arm's residual sum of squares, and the variance formula is adjusted
+#'   accordingly.  Has no effect when \code{compute_variance = FALSE}.
 #'
 #' @return A list. When \code{compute_variance = TRUE} (the default),
 #'   seven elements:
@@ -121,7 +128,8 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
                            treatment_name, covariate_names,
                            compute_variance = TRUE,
                            study_effects = FALSE,
-                           heterogeneous = TRUE) {
+                           heterogeneous = TRUE,
+                           heterogeneous_arms = FALSE) {
   if (is.null(datasources)) {
     datasources <- DSI::datashield.connections_find()
   }
@@ -248,7 +256,15 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
 
   # When study_effects = TRUE, d already includes the K-1 dummies, so the
   # denominator automatically becomes n - 2(d_orig + K) as required.
-  sigma2_hat <- sum(local_results$rss_k) / (n - 2L * (d + 1L))
+  # The same logic applies to arm-specific df: n_w - (d + 1).
+  n_0 <- n - n_1
+  if (heterogeneous_arms) {
+    sigma2_hat_1 <- sum(local_results$rss_k_1) / (n_1 - (d + 1L))
+    sigma2_hat_0 <- sum(local_results$rss_k_0) / (n_0 - (d + 1L))
+  } else {
+    sigma2_hat <- sum(local_results$rss_k_1 + local_results$rss_k_0) /
+                  (n - 2L * (d + 1L))
+  }
 
   if (heterogeneous) {
     variance <- .compute_variance_delta(
@@ -258,14 +274,21 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
       ate_hat      = ate_hat,
       g_treated    = local_results$g1,
       g_control    = local_results$g0,
-      vcov_treated = sigma2_hat * model_treated$VarCovMatrix,
-      vcov_control = sigma2_hat * model_control$VarCovMatrix,
+      vcov_treated = if (heterogeneous_arms) sigma2_hat_1 * model_treated$VarCovMatrix
+                     else                    sigma2_hat   * model_treated$VarCovMatrix,
+      vcov_control = if (heterogeneous_arms) sigma2_hat_0 * model_control$VarCovMatrix
+                     else                    sigma2_hat   * model_control$VarCovMatrix,
       s_k          = local_results$s_k
     )
   } else {
-    p_hat    <- n_1 / n
-    tss      <- sum(local_results$s_k + n_k * (tau_k - ate_hat)^2)
-    variance <- sigma2_hat / (n * p_hat * (1 - p_hat)) + tss / (n * (n - 1L))
+    p_hat <- n_1 / n
+    tss   <- sum(local_results$s_k + n_k * (tau_k - ate_hat)^2)
+    if (heterogeneous_arms) {
+      variance <- sigma2_hat_1 / (n * p_hat) + sigma2_hat_0 / (n * (1 - p_hat)) +
+                  tss / (n * (n - 1L))
+    } else {
+      variance <- sigma2_hat / (n * p_hat * (1 - p_hat)) + tss / (n * (n - 1L))
+    }
   }
 
   se       <- sqrt(variance)
@@ -323,8 +346,9 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     tau_k = vapply(results, `[[`, 1.0, "tau_k")
   )
   if (compute_variance) {
-    out$s_k   <- vapply(results, `[[`, 1.0, "s_k")
-    out$rss_k <- vapply(results, `[[`, 1.0, "rss_k")
+    out$s_k     <- vapply(results, `[[`, 1.0, "s_k")
+    out$rss_k_1 <- vapply(results, `[[`, 1.0, "rss_k_1")
+    out$rss_k_0 <- vapply(results, `[[`, 1.0, "rss_k_0")
   }
   if (compute_variance && heterogeneous) {
     n      <- sum(out$n_k)

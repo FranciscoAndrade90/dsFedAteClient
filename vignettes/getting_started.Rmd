@@ -1,0 +1,544 @@
+---
+title: "Getting started"
+output: rmarkdown::html_vignette
+bibliography: biblio.bib
+vignette: >
+  %\VignetteIndexEntry{Getting started}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+
+eval_chunks <- requireNamespace("dsRctFed",       quietly = TRUE) &&
+               requireNamespace("dsRctFedClient", quietly = TRUE) &&
+               requireNamespace("MASS",           quietly = TRUE) &&
+               requireNamespace("DSLite",         quietly = TRUE) &&
+               requireNamespace("dsBaseClient",   quietly = TRUE)
+
+knitr::opts_hooks$set(eval = function(options) {
+  if (isTRUE(options$eval) && !eval_chunks) options$eval <- FALSE
+  options
+})
+```
+
+```{r setup, eval = FALSE}
+library(dsRctFedClient)
+```
+
+This vignette walks through four worked examples of federated Average Treatment Effect (ATE) estimation.
+For the full statistical and causal background see @khellaf2025.
+
+**Organisation.** The Estimator section introduces the notation and the three-step
+estimation procedure. Four examples then illustrate the method under progressively
+richer conditions: Example 1 covers the baseline homogeneous setting and verifies that
+the federated estimator matches the centralised one; Example 2 shows how DataSHIELD's
+disclosure controls interact with estimation and when they block it; Example 3 extends
+the analysis to sites with heterogeneous covariate distributions; Example 4 addresses
+site-specific intercept shifts that would otherwise confound the unadjusted estimator.
+
+## Installation
+
+```{r, eval = FALSE}
+install.packages("dsRctFedClient")  # client package (analyst machine)
+install.packages("dsRctFed")        # server package (deployed on each data node)
+```
+
+## Estimator
+
+Consider $n$ individuals distributed across $K$ sites, with site $k$ holding $n_k$
+observations ($\sum_k n_k = n$). For individual $i$ in site $k$, let $X_{ki} \in \mathbb{R}^d$
+denote baseline covariates, $W_{ki} \in \{0,1\}$ the treatment indicator, and $Y_{ki} \in \mathbb{R}$
+the observed outcome, related to the potential outcomes [@rubin1974] by
+$Y_{ki} = W_{ki}\,Y_{ki}^{(1)} + (1-W_{ki})\,Y_{ki}^{(0)}$.
+
+The quantity of interest is the **Average Treatment Effect**
+$$\tau^\star = \mathbb{E}\!\left[Y^{(1)} - Y^{(0)}\right].$$
+
+For each arm $w \in \{0,1\}$, an arm-specific linear model is fitted by **federated
+linear regression** — each site contributes its local cross-products of the design
+matrix and the solution is identical to the centralised one:
+$$(\hat\alpha_w,\,\hat\beta_w) = \underset{\alpha,\,\beta}{\arg\min}
+  \sum_{k=1}^K \sum_{i:\,W_{ki}=w}
+  \bigl(Y_{ki} - \alpha - \beta^\top X_{ki}\bigr)^2.$$
+No individual-level records are shared at any point.
+Each site $k$ then applies the shared coefficients via the **plug-in G-formula**:
+$$\hat\tau_k = \frac{1}{n_k}\sum_{i=1}^{n_k}
+  \Bigl[
+    \bigl(\hat\alpha_1 + \hat\beta_1^\top X_{ki}\bigr) -
+    \bigl(\hat\alpha_0 + \hat\beta_0^\top X_{ki}\bigr)
+  \Bigr],$$
+and the global estimate is the sample-size-weighted average
+$$\hat\tau = \sum_{k=1}^K \frac{n_k}{n}\,\hat\tau_k.$$
+
+## Local simulation with DSLite
+
+All examples use **DSLite** to emulate a federated DataSHIELD infrastructure locally.
+In a real deployment each site would run a dedicated institutional server.
+
+```{r, eval = TRUE}
+library(dsRctFedClient)
+library(dsRctFed)
+library(DSLite)
+library(MASS)
+```
+
+## Shared parameters
+
+All four examples share the model structure parameters below.
+`sigma_noise` is the common noise standard deviation used in Examples 1–3;
+Example 4 uses arm-specific values defined in its own data section.
+
+```{r, eval = TRUE}
+K           <- 5
+d           <- 10
+sigma_noise <- 1.0
+alpha_0     <- -2
+alpha_1     <- -1.85
+
+beta_1 <- seq(-1.75, 0.5,  by = 0.25)
+beta_0 <- seq(-1.8,  0.0,  by = 0.2)
+
+I_d <- diag(d)
+J   <- matrix(1, nrow = d, ncol = d)
+```
+
+## Example 1 — Homogeneous sites
+
+Five sites, balanced sample sizes, same covariate distribution everywhere.
+The federated estimator matches the centralised one exactly.
+
+### Data
+
+```{r, eval = TRUE}
+set.seed(123)
+
+n_per_study <- 20 * d
+p_treatment <- c(0.65, 0.65, 0.65, 0.35, 0.35)
+
+mu_X    <- c(rep(1, d %/% 2), rep(-1, d %/% 2))
+Sigma_X <- 0.5 * I_d + 0.5 * J
+
+true_ATE <- (alpha_1 - alpha_0) + sum(mu_X * (beta_1 - beta_0))
+
+data_list <- vector("list", K)
+for (k in seq_len(K)) {
+  X_k   <- mvrnorm(n = n_per_study, mu = mu_X, Sigma = Sigma_X)
+  W_k   <- rbinom(n = n_per_study, size = 1, prob = p_treatment[k])
+  Y_0   <- alpha_0 + X_k %*% beta_0 + rnorm(n_per_study, sd = sigma_noise)
+  Y_1   <- alpha_1 + X_k %*% beta_1 + rnorm(n_per_study, sd = sigma_noise)
+  Y_obs <- W_k * Y_1 + (1 - W_k) * Y_0
+  df    <- data.frame(W = W_k, Y = as.vector(Y_obs), X_k)
+  colnames(df) <- c("W", "Y", paste0("X", seq_len(d)))
+  data_list[[k]] <- df
+}
+pooled_data <- do.call(rbind, data_list)
+```
+
+### Servers
+
+```{r, eval = TRUE}
+options(
+  datashield.privacyControlLevel = "banana",
+  nfilter.glm                    = 0.33
+)
+
+for (k in seq_len(K)) {
+  srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list[[k]]))
+  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  srv$aggregateMethod("localAteDS", "localAteDS")
+  assign(paste0("dslite.server", k), srv, envir = .GlobalEnv)
+}
+
+builder <- DSI::newDSLoginBuilder()
+for (k in seq_len(K)) {
+  builder$append(
+    server = paste0("study", k),
+    url    = paste0("dslite.server", k),
+    table  = "study_data",
+    driver = "DSLiteDriver"
+  )
+}
+conns <- DSI::datashield.login(logins = builder$build(), assign = FALSE)
+DSI::datashield.assign.table(conns = conns, table = "study_data", symbol = "base")
+```
+
+### Estimate
+
+```{r, results = "hide", message = FALSE}
+outcome_name    <- "Y"
+treatment_name  <- "W"
+covariate_names <- paste0("X", seq_len(d))
+
+federated_ate <- ds.EstimateAte(
+  datasources     = conns,
+  base_name       = "base",
+  outcome_name    = outcome_name,
+  treatment_name  = treatment_name,
+  covariate_names = covariate_names,
+  heterogeneous   = FALSE
+)
+```
+
+```{r, eval = TRUE}
+cat(sprintf("ATE: %.4f  SE: %.4f  95%% CI: [%.4f, %.4f]  True ATE: %.4f\n",
+            federated_ate$ate, sqrt(federated_ate$variance),
+            federated_ate$ci_lower, federated_ate$ci_upper, true_ATE))
+```
+
+The federated ATE equals the centralised estimator to machine precision:
+
+```{r, eval = TRUE}
+pooled_treated <- pooled_data[pooled_data$W == 1, ]
+pooled_control <- pooled_data[pooled_data$W == 0, ]
+formula        <- paste0(outcome_name, " ~ ", paste(covariate_names, collapse = " + "))
+m1             <- glm(formula, family = gaussian, data = pooled_treated)
+m0             <- glm(formula, family = gaussian, data = pooled_control)
+x_bar          <- colMeans(as.matrix(pooled_data[, covariate_names]))
+pooled_ate     <- as.numeric(
+  (m1$coefficients["(Intercept)"] - m0$coefficients["(Intercept)"]) +
+  sum(x_bar * (m1$coefficients[covariate_names] - m0$coefficients[covariate_names]))
+)
+isTRUE(all.equal(pooled_ate, federated_ate$ate))
+```
+
+```{r, eval = TRUE}
+DSI::datashield.logout(conns)
+```
+
+## Example 2 — Privacy settings
+
+Same model, but extreme treatment probabilities (0.9 / 0.1) produce very small arm sizes
+at some sites. The default `banana` settings block estimation; switching to `permissive`
+allows it.
+
+### Data
+
+```{r, eval = TRUE}
+p_treatment_2 <- c(0.9, 0.9, 0.9, 0.1, 0.1)
+
+data_list_2 <- vector("list", K)
+for (k in seq_len(K)) {
+  X_k   <- mvrnorm(n = n_per_study, mu = mu_X, Sigma = Sigma_X)
+  W_k   <- rbinom(n = n_per_study, size = 1, prob = p_treatment_2[k])
+  Y_0   <- alpha_0 + X_k %*% beta_0 + rnorm(n_per_study, sd = sigma_noise)
+  Y_1   <- alpha_1 + X_k %*% beta_1 + rnorm(n_per_study, sd = sigma_noise)
+  Y_obs <- W_k * Y_1 + (1 - W_k) * Y_0
+  df    <- data.frame(W = W_k, Y = as.vector(Y_obs), X_k)
+  colnames(df) <- c("W", "Y", paste0("X", seq_len(d)))
+  data_list_2[[k]] <- df
+}
+```
+
+### Default settings — blocked
+
+```{r, eval = TRUE}
+options(datashield.privacyControlLevel = "banana", nfilter.glm = 0.33)
+
+for (k in seq_len(K)) {
+  srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_2[[k]]))
+  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  srv$aggregateMethod("localAteDS", "localAteDS")
+  assign(paste0("dslite.server2_", k), srv, envir = .GlobalEnv)
+}
+
+builder2 <- DSI::newDSLoginBuilder()
+for (k in seq_len(K)) {
+  builder2$append(
+    server = paste0("study", k),
+    url    = paste0("dslite.server2_", k),
+    table  = "study_data",
+    driver = "DSLiteDriver"
+  )
+}
+conns_2 <- DSI::datashield.login(logins = builder2$build(), assign = FALSE)
+DSI::datashield.assign.table(conns = conns_2, table = "study_data", symbol = "base")
+```
+
+```{r, eval = TRUE, error = TRUE}
+ds.EstimateAte(
+  datasources     = conns_2,
+  base_name       = "base",
+  outcome_name    = outcome_name,
+  treatment_name  = treatment_name,
+  covariate_names = covariate_names,
+  heterogeneous   = FALSE
+)
+```
+
+### Permissive settings — succeeds
+
+```{r, eval = TRUE}
+options(datashield.privacyControlLevel = "permissive", nfilter.glm = 1.0)
+
+for (k in seq_len(K)) {
+  srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_2[[k]]))
+  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  srv$aggregateMethod("localAteDS", "localAteDS")
+  assign(paste0("dslite.server2_", k), srv, envir = .GlobalEnv)
+}
+conns_2 <- DSI::datashield.login(logins = builder2$build(), assign = FALSE)
+DSI::datashield.assign.table(conns = conns_2, table = "study_data", symbol = "base")
+```
+
+```{r, results = "hide", message = FALSE}
+federated_ate_2 <- ds.EstimateAte(
+  datasources     = conns_2,
+  base_name       = "base",
+  outcome_name    = outcome_name,
+  treatment_name  = treatment_name,
+  covariate_names = covariate_names,
+  heterogeneous   = FALSE
+)
+```
+
+```{r, eval = TRUE}
+cat(sprintf("ATE: %.4f  SE: %.4f  95%% CI: [%.4f, %.4f]  True ATE: %.4f\n",
+            federated_ate_2$ate, sqrt(federated_ate_2$variance),
+            federated_ate_2$ci_lower, federated_ate_2$ci_upper, true_ATE))
+```
+
+The standard error is larger than in Example 1: extreme treatment imbalance reduces the
+effective sample size for both arms.
+
+```{r, eval = TRUE}
+DSI::datashield.logout(conns_2)
+```
+
+## Example 3 — Heterogeneous covariate distributions
+
+Each site now recruits from a different patient population: covariates are drawn as
+$X_{ki} \sim \mathcal{N}(\mu_k, \Sigma_k)$ with site-specific mean $\mu_k \in \mathbb{R}^d$
+and covariance $\Sigma_k \in \mathbb{R}^{d \times d}$.
+Pass `heterogeneous = TRUE` to use the OLS-covariance-based variance formula, which is
+valid under distributional shift.
+
+### Data
+
+```{r, eval = TRUE}
+set.seed(123)
+
+n_list          <- c(600, 120, 120, 120, 120)
+p_treatment_het <- c(0.65, 0.65, 0.65, 0.35, 0.35)
+
+mu_list <- list(
+  c(rep( 1.0, d / 2), rep(-1.0, d / 2)),
+  c(rep(-1.0, d / 2), rep( 1.0, d / 2)),
+  rep(0, d),
+  c(rep( 0.5, d / 2), rep(-1.0, d / 2)),
+  c(rep( 1.2, d / 2), rep( 0.8, d / 2))
+)
+
+Sigma_1    <- 0.5 * I_d + 0.5 * J
+Sigma_list <- list(
+  Sigma_1,
+  20 * Sigma_1 + 0.5 * I_d - 0.5 * J,
+  0.02 * Sigma_1 + 0.7  * I_d,
+  1.0  * Sigma_1 + 0.5  * I_d - 0.15 * J,
+  1.5  * Sigma_1 + 0.5  * I_d - 0.15 * J
+)
+
+tau_k_vec    <- sapply(mu_list, function(mu_k) (alpha_1 - alpha_0) + sum(mu_k * (beta_1 - beta_0)))
+true_ATE_het <- sum(n_list * tau_k_vec) / sum(n_list)
+
+data_list_het <- vector("list", K)
+for (k in seq_len(K)) {
+  n_k   <- n_list[k]
+  X_k   <- mvrnorm(n = n_k, mu = mu_list[[k]], Sigma = Sigma_list[[k]])
+  W_k   <- rbinom(n = n_k, size = 1, prob = p_treatment_het[k])
+  Y_0   <- alpha_0 + X_k %*% beta_0 + rnorm(n_k, sd = sigma_noise)
+  Y_1   <- alpha_1 + X_k %*% beta_1 + rnorm(n_k, sd = sigma_noise)
+  Y_obs <- W_k * Y_1 + (1 - W_k) * Y_0
+  df    <- data.frame(W = W_k, Y = as.vector(Y_obs), X_k)
+  colnames(df) <- c("W", "Y", paste0("X", seq_len(d)))
+  data_list_het[[k]] <- df
+}
+pooled_data_het <- do.call(rbind, data_list_het)
+```
+
+### Servers
+
+```{r, eval = TRUE}
+options(datashield.privacyControlLevel = "banana", nfilter.glm = 0.33)
+
+for (k in seq_len(K)) {
+  srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_het[[k]]))
+  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  srv$aggregateMethod("localAteDS", "localAteDS")
+  assign(paste0("dslite.server_het", k), srv, envir = .GlobalEnv)
+}
+
+builder_het <- DSI::newDSLoginBuilder()
+for (k in seq_len(K)) {
+  builder_het$append(
+    server = paste0("study", k),
+    url    = paste0("dslite.server_het", k),
+    table  = "study_data",
+    driver = "DSLiteDriver"
+  )
+}
+conns_het <- DSI::datashield.login(logins = builder_het$build(), assign = FALSE)
+DSI::datashield.assign.table(conns = conns_het, table = "study_data", symbol = "base")
+```
+
+### Estimate
+
+```{r, results = "hide", message = FALSE}
+federated_ate_het <- ds.EstimateAte(
+  datasources     = conns_het,
+  base_name       = "base",
+  outcome_name    = outcome_name,
+  treatment_name  = treatment_name,
+  covariate_names = covariate_names,
+  heterogeneous   = TRUE
+)
+```
+
+```{r, eval = TRUE}
+cat(sprintf("ATE: %.4f  SE: %.4f  95%% CI: [%.4f, %.4f]  True ATE: %.4f\n",
+            federated_ate_het$ate, sqrt(federated_ate_het$variance),
+            federated_ate_het$ci_lower, federated_ate_het$ci_upper, true_ATE_het))
+```
+
+```{r, eval = TRUE}
+x_bar_het      <- colMeans(as.matrix(pooled_data_het[, covariate_names]))
+pooled_trt_het <- pooled_data_het[pooled_data_het$W == 1, ]
+pooled_ctl_het <- pooled_data_het[pooled_data_het$W == 0, ]
+m1_het         <- glm(formula, family = gaussian, data = pooled_trt_het)
+m0_het         <- glm(formula, family = gaussian, data = pooled_ctl_het)
+pooled_ate_het <- as.numeric(
+  (m1_het$coefficients["(Intercept)"] - m0_het$coefficients["(Intercept)"]) +
+  sum(x_bar_het * (m1_het$coefficients[covariate_names] - m0_het$coefficients[covariate_names]))
+)
+isTRUE(all.equal(pooled_ate_het, federated_ate_het$ate))
+```
+
+```{r, eval = TRUE}
+DSI::datashield.logout(conns_het)
+```
+
+## Example 4 — Study effects
+
+Sites differ in baseline outcome levels: a site-specific scalar $h_k \in \mathbb{R}$
+shifts both potential outcomes at site $k$,
+$$Y_{ki}^{(w)} = \alpha_w + h_k + \beta_w^\top X_{ki} + \varepsilon_{ki}^{(w)}.$$
+Because $h_k$ appears in both arms it cancels in $Y^{(1)} - Y^{(0)}$ and does not affect
+the ATE. However, when treatment probabilities are heterogeneous across sites, $h_k$
+confounds the unadjusted estimator.
+The fix is to augment $X_{ki}$ with $K-1$ study-membership dummies
+$H_{j,ki} = \mathbf{1}\{k = j\}$, $j = 2, \ldots, K$, and estimate the federated GLMs
+on the extended design matrix, absorbing the shifts.
+Pass `study_effects = TRUE` to do this automatically.
+
+### Data
+
+```{r, eval = TRUE}
+set.seed(123)
+
+n_list        <- c(600, 300, 300, 300, 300)
+h_k           <- c(1, 2, -1, 30, 2)
+p_treatment_3 <- c(0.65, 0.65, 0.65, 0.35, 0.35)
+sigma_0       <- 0.5
+sigma_1       <- 3.0
+
+tau_k_vec <- sapply(mu_list, function(mu_k) (alpha_1 - alpha_0) + sum(mu_k * (beta_1 - beta_0)))
+true_ATE  <- sum(n_list * tau_k_vec) / sum(n_list)
+
+data_list_3 <- vector("list", K)
+for (k in seq_len(K)) {
+  n_k   <- n_list[k]
+  X_k   <- mvrnorm(n = n_k, mu = mu_list[[k]], Sigma = Sigma_list[[k]])
+  W_k   <- rbinom(n = n_k, size = 1, prob = p_treatment_3[k])
+  Y_0   <- alpha_0 + h_k[k] + X_k %*% beta_0 + rnorm(n_k, sd = sigma_0)
+  Y_1   <- alpha_1 + h_k[k] + X_k %*% beta_1 + rnorm(n_k, sd = sigma_1)
+  Y_obs <- W_k * Y_1 + (1 - W_k) * Y_0
+  df    <- data.frame(W = W_k, Y = as.vector(Y_obs), X_k)
+  colnames(df) <- c("W", "Y", paste0("X", seq_len(d)))
+  data_list_3[[k]] <- df
+}
+```
+
+### Servers
+
+```{r, eval = TRUE}
+options(datashield.privacyControlLevel = "banana", nfilter.glm = 0.33)
+
+for (k in seq_len(K)) {
+  srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_3[[k]]))
+  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  srv$aggregateMethod("localAteDS", "localAteDS")
+  srv$assignMethod("addStudyIdDS", "addStudyIdDS")
+  assign(paste0("dslite.server3_", k), srv, envir = .GlobalEnv)
+}
+
+builder3 <- DSI::newDSLoginBuilder()
+for (k in seq_len(K)) {
+  builder3$append(
+    server = paste0("study", k),
+    url    = paste0("dslite.server3_", k),
+    table  = "study_data",
+    driver = "DSLiteDriver"
+  )
+}
+conns_3 <- DSI::datashield.login(logins = builder3$build(), assign = FALSE)
+DSI::datashield.assign.table(conns = conns_3, table = "study_data", symbol = "base")
+```
+
+### Unadjusted — biased
+
+```{r, results = "hide", message = FALSE}
+federated_ate_unadj <- ds.EstimateAte(
+  datasources     = conns_3,
+  base_name       = "base",
+  outcome_name    = outcome_name,
+  treatment_name  = treatment_name,
+  covariate_names = covariate_names,
+  study_effects   = FALSE,
+  heterogeneous   = TRUE
+)
+```
+
+```{r, eval = TRUE}
+cat(sprintf("Unadjusted ATE: %.4f   bias: %.4f   (true ATE: %.4f)\n",
+            federated_ate_unadj$ate,
+            federated_ate_unadj$ate - true_ATE,
+            true_ATE))
+```
+
+### Adjusted — unbiased
+
+`heterogeneous_arms = TRUE` estimates arm-specific noise variances $\hat\sigma_0^2$ and
+$\hat\sigma_1^2$ separately, giving a correctly specified standard error when
+$\sigma_0 \neq \sigma_1$.
+
+```{r, results = "hide", message = FALSE}
+federated_ate_adj <- ds.EstimateAte(
+  datasources        = conns_3,
+  base_name          = "base",
+  outcome_name       = outcome_name,
+  treatment_name     = treatment_name,
+  covariate_names    = covariate_names,
+  study_effects      = TRUE,
+  heterogeneous      = TRUE,
+  heterogeneous_arms = TRUE
+)
+```
+
+```{r, eval = TRUE}
+cat(sprintf("Adjusted ATE: %.4f  bias: %.4f  SE: %.4f  95%% CI: [%.4f, %.4f]  True ATE: %.4f\n",
+            federated_ate_adj$ate, federated_ate_adj$ate - true_ATE,
+            sqrt(federated_ate_adj$variance),
+            federated_ate_adj$ci_lower, federated_ate_adj$ci_upper, true_ATE))
+```
+
+The adjusted estimate recovers the true ATE and the CI covers it.
+
+```{r, eval = TRUE}
+DSI::datashield.logout(conns_3)
+```
+
+## References

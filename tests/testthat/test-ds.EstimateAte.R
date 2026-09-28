@@ -489,6 +489,70 @@ test_that("ds.EstimateAte heterogeneous=TRUE CI contains the true ATE", {
   expect_gt(result$ci_upper, 0.5)
 })
 
+# heterogeneous_arms = TRUE ---------------------------------------------------
+
+test_that("ds.EstimateAte heterogeneous_arms=TRUE returns a seven-element list", {
+  result <- ds.EstimateAte(
+    datasources        = conns,
+    base_name          = "study_data",
+    outcome_name       = "Y",
+    treatment_name     = "W",
+    covariate_names    = c("X1", "X2"),
+    heterogeneous_arms = TRUE
+  )
+  expect_named(result, c("ate", "variance", "ci_lower", "ci_upper",
+                         "n_total", "n_k", "ate_k"))
+})
+
+test_that("ds.EstimateAte heterogeneous_arms=TRUE ATE equals heterogeneous_arms=FALSE ATE", {
+  r_pooled <- ds.EstimateAte(
+    datasources        = conns,
+    base_name          = "study_data",
+    outcome_name       = "Y",
+    treatment_name     = "W",
+    covariate_names    = c("X1", "X2"),
+    heterogeneous_arms = FALSE
+  )
+  r_split <- ds.EstimateAte(
+    datasources        = conns,
+    base_name          = "study_data",
+    outcome_name       = "Y",
+    treatment_name     = "W",
+    covariate_names    = c("X1", "X2"),
+    heterogeneous_arms = TRUE
+  )
+  expect_equal(r_split$ate, r_pooled$ate)
+})
+
+test_that("ds.EstimateAte heterogeneous_arms=TRUE variance is positive and finite", {
+  result <- ds.EstimateAte(
+    datasources        = conns,
+    base_name          = "study_data",
+    outcome_name       = "Y",
+    treatment_name     = "W",
+    covariate_names    = c("X1", "X2"),
+    heterogeneous_arms = TRUE
+  )
+  expect_gt(result$variance, 0)
+  expect_false(is.na(result$variance))
+  expect_false(is.infinite(result$variance))
+})
+
+test_that("ds.EstimateAte heterogeneous=FALSE heterogeneous_arms=TRUE variance is positive and finite", {
+  result <- ds.EstimateAte(
+    datasources        = conns,
+    base_name          = "study_data",
+    outcome_name       = "Y",
+    treatment_name     = "W",
+    covariate_names    = c("X1", "X2"),
+    heterogeneous      = FALSE,
+    heterogeneous_arms = TRUE
+  )
+  expect_gt(result$variance, 0)
+  expect_false(is.na(result$variance))
+  expect_false(is.infinite(result$variance))
+})
+
 # .add_study_id ----------------------------------------------------------------
 
 test_that(".add_study_id creates a new object with study_id2 and study_id3, leaving original unchanged", {
