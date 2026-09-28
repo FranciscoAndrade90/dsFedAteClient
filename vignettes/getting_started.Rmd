@@ -1,9 +1,9 @@
 ---
-title: "Getting started"
+title: "Federated Average Treatment Effect Estimation"
 output: rmarkdown::html_vignette
 bibliography: biblio.bib
 vignette: >
-  %\VignetteIndexEntry{Getting started}
+  %\VignetteIndexEntry{Federated Average Treatment Effect Estimation}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -30,12 +30,24 @@ knitr::opts_hooks$set(eval = function(options) {
 library(dsRctFedClient)
 ```
 
-This vignette walks through four worked examples of federated Average Treatment Effect (ATE) estimation.
-For the full statistical and causal background see @khellaf2025.
+Randomised Controlled Trials (RCTs) are the gold standard for estimating causal treatment
+effects, but individual trials are often limited in size or patient diversity, making
+multi-site analyses highly desirable. The obstacle is that individual-level data are
+typically siloed across institutions by privacy regulations and data governance policies,
+making naive data centralisation infeasible. **DataSHIELD** addresses this through
+federated analysis: each site returns only aggregate statistics so that raw records never
+leave their originating server. This vignette walks through four worked examples of
+federated Average Treatment Effect (ATE) estimation using the estimator of @khellaf2025,
+which fits arm-specific outcome models across sites and aggregates local plug-in G-formula
+estimates into a global ATE.
+
+```{r, echo = FALSE, out.width = "50%", fig.align = "center"}
+knitr::include_graphics(ifelse(knitr::is_latex_output(), "figure_federated.pdf", "figure_federated.svg"))
+```
 
 **Organisation.** The Estimator section introduces the notation and the three-step
 estimation procedure. Four examples then illustrate the method under progressively
-richer conditions: Example 1 covers the baseline homogeneous setting and verifies that
+richer conditions: Example 1 covers the baseline homogeneous covariate distributions setting and verifies that
 the federated estimator matches the centralised one; Example 2 shows how DataSHIELD's
 disclosure controls interact with estimation and when they block it; Example 3 extends
 the analysis to sites with heterogeneous covariate distributions; Example 4 addresses
@@ -59,7 +71,11 @@ $Y_{ki} = W_{ki}\,Y_{ki}^{(1)} + (1-W_{ki})\,Y_{ki}^{(0)}$.
 The quantity of interest is the **Average Treatment Effect**
 $$\tau^\star = \mathbb{E}\!\left[Y^{(1)} - Y^{(0)}\right].$$
 
-For each arm $w \in \{0,1\}$, an arm-specific linear model is fitted by **federated
+```{r, echo = FALSE, out.width = "35%", fig.align = "center"}
+knitr::include_graphics(ifelse(knitr::is_latex_output(), "figure2_small.pdf", "figure2_small.svg"))
+```
+
+Under an outcome model as given in the DAG above, for each arm $w \in \{0,1\}$, an arm-specific linear model is fitted by **federated
 linear regression** — each site contributes its local cross-products of the design
 matrix and the solution is identical to the centralised one:
 $$(\hat\alpha_w,\,\hat\beta_w) = \underset{\alpha,\,\beta}{\arg\min}
@@ -74,6 +90,13 @@ $$\hat\tau_k = \frac{1}{n_k}\sum_{i=1}^{n_k}
   \Bigr],$$
 and the global estimate is the sample-size-weighted average
 $$\hat\tau = \sum_{k=1}^K \frac{n_k}{n}\,\hat\tau_k.$$
+
+> **Remark.** In Example 4 we consider an outcome model as in the DAG above but with an
+> additional arrow from the site indicator $H$ to $Y$, known as *study effects* in the
+> literature. In that setting the arm-specific regressions are also fitted over $H$ — by
+> augmenting the design matrix with site-membership dummies — in order to absorb the
+> site-level intercept shifts and obtain an unbiased estimate of $\tau^\star$. See
+> Example 4 for details.
 
 ## Local simulation with DSLite
 
