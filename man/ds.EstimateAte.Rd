@@ -32,14 +32,13 @@ indicator.}
 
 \item{compute_variance}{Logical. If \code{TRUE} (default), the function
 returns a delta-method variance estimate and a 95\% confidence interval in
-addition to the ATE point estimate.  To compute these, each server returns
-additional statistics (residual sum of squares and projected scatter
-scalar), and — when \code{heterogeneous = TRUE} — the per-arm Gram
+addition to the ATE point estimate.  To compute these, the per-arm Gram
 inverses are obtained by calling \code{ds.glm} with
-\code{viewVarCov = TRUE}, and each server additionally returns covariate
-column sums.  All of this constitutes an extra disclosure step.  Set to
-\code{FALSE} to return only the ATE point estimate and minimise the
-information shared by each server.}
+\code{viewVarCov = TRUE}, and each server additionally returns the
+within-site projected scatter scalar and — when
+\code{heterogeneous = TRUE} — covariate column sums.  All of this
+constitutes an extra disclosure step.  Set to \code{FALSE} to return only
+the ATE point estimate and minimise the information shared by each server.}
 
 \item{study_effects}{Logical. If \code{FALSE} (default), the no-study-effects
 model is assumed (potential outcome model defined in equation (2) of Khellaf et al., 2025):
@@ -60,9 +59,10 @@ emits a warning when only one datasource is present.}
 \code{TRUE} (default) makes no assumption about the participating RCTs:
 each site may have a different covariate distribution and a different
 treatment probability.  The leverage-corrected OLS noise component is
-computed from the per-arm Gram inverses returned by
-\code{ds.glm(viewVarCov = TRUE)}, using the global covariate mean
-assembled from per-server column sums returned by \code{localAteDS()}.
+computed from the per-arm Gram inverses (always returned via
+\code{ds.glm(viewVarCov = TRUE)} when \code{compute_variance = TRUE}),
+using the global covariate mean assembled from per-server column sums
+returned by \code{localAteDS()}.
 \code{FALSE} assumes that all RCTs share the same covariate distribution
 and uses a simpler closed-form variance that is exact only under this
 homogeneity assumption (constant covariate means and treatment
@@ -70,12 +70,12 @@ probabilities across sites).
 Has no effect when \code{compute_variance = FALSE}.}
 
 \item{heteroscedastic_arms}{Logical. If \code{FALSE} (default), the noise
-variance \eqn{\sigma^2} is assumed identical in both arms and estimated
-from the pooled residual sum of squares across treated and control
-observations.  If \code{TRUE}, arm-specific noise variances
-\eqn{\sigma_1^2} and \eqn{\sigma_0^2} are estimated separately from each
-arm's residual sum of squares, and the variance formula is adjusted
-accordingly.  Has no effect when \code{compute_variance = FALSE}.}
+variance \eqn{\sigma^2} is assumed identical in both arms and estimated by
+pooling the arm-specific deviances from \code{ds.glm} weighted by their
+residual degrees of freedom.  If \code{TRUE}, arm-specific noise variances
+\eqn{\sigma_1^2} and \eqn{\sigma_0^2} are estimated from each arm's
+deviance and residual df, and the variance formula is adjusted accordingly.
+Has no effect when \code{compute_variance = FALSE}.}
 }
 \value{
 A list. When \code{compute_variance = TRUE} (the default),

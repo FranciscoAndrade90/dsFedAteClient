@@ -129,84 +129,79 @@ test_that("ds.EstimateAte compute_variance=FALSE ATE matches full result", {
   expect_equal(ate_only$ate_k, full$ate_k)
 })
 
-# .compute_variance_delta -------------------------------------------------------
+# .compute_variance ------------------------------------------------------------
 
-test_that(".compute_variance_delta returns a positive finite scalar", {
-  n       <- 100L
-  n_k     <- c(60L, 40L)
-  tau_k   <- c(0.54, 0.56)
-  ate_hat <- sum(n_k * tau_k) / n
-  g       <- c(1, 0.1, -0.05)
-  V1      <- (1 / 60) * diag(3L)
-  V0      <- (1 / 40) * diag(3L)
-  s_k     <- c(3.0, 2.5)
-
-  v <- .compute_variance_delta(100L, n_k, tau_k, ate_hat, g, g, V1, V0, s_k)
+test_that(".compute_variance returns a positive finite scalar", {
+  v <- .compute_variance(
+    n = 100L, n_k = c(60L, 40L), tau_k = c(0.54, 0.56),
+    ate_hat = (60L * 0.54 + 40L * 0.56) / 100L, s_k = c(3.0, 2.5),
+    n_1 = 60L, heterogeneous = TRUE, heteroscedastic_arms = FALSE,
+    g = c(1, 0.1, -0.05), vcov_treated = (1/60) * diag(3L), vcov_control = (1/40) * diag(3L),
+    sigma2_hat = 1.0
+  )
   expect_length(v, 1L)
   expect_gt(v, 0)
   expect_false(is.na(v))
   expect_false(is.infinite(v))
 })
 
-test_that(".compute_variance_delta param term is zero when g = 0", {
-  n       <- 100L
-  n_k     <- c(60L, 40L)
-  tau_k   <- c(0.54, 0.46)
+test_that(".compute_variance parametric term is zero when g = 0", {
+  n     <- 100L
+  n_k   <- c(60L, 40L)
+  tau_k <- c(0.54, 0.46)
   ate_hat <- sum(n_k * tau_k) / n
-  g       <- rep(0, 3L)
-  V       <- diag(3L)
-  s_k     <- c(3.0, 2.5)
+  s_k   <- c(3.0, 2.5)
 
-  v         <- .compute_variance_delta(n, n_k, tau_k, ate_hat, g, g, V, V, s_k)
+  v         <- .compute_variance(
+    n = n, n_k = n_k, tau_k = tau_k, ate_hat = ate_hat, s_k = s_k,
+    n_1 = 60L, heterogeneous = TRUE, heteroscedastic_arms = FALSE,
+    g = rep(0, 3L), vcov_treated = diag(3L), vcov_control = diag(3L),
+    sigma2_hat = 1.0
+  )
   tss       <- sum(s_k + n_k * (tau_k - ate_hat)^2)
   samp_only <- tss / (n * (n - 1L))
   expect_equal(v, samp_only, tolerance = 1e-10)
 })
 
-test_that(".compute_variance_delta sampling term is zero when tau_k = ate_hat and s_k = 0", {
-  n       <- 100L
-  n_k     <- c(60L, 40L)
-  tau_k   <- c(0.5, 0.5)
-  ate_hat <- 0.5
-  g       <- c(1, 0.1)
-  V1      <- (1 / 60) * diag(2L)
-  V0      <- (1 / 40) * diag(2L)
-  s_k     <- c(0, 0)
+test_that(".compute_variance sampling term is zero when tau_k = ate_hat and s_k = 0", {
+  n   <- 100L
+  n_1 <- 60L
+  g   <- c(1, 0.1)
+  V1  <- (1 / n_1) * diag(2L)
+  V0  <- (1 / (n - n_1)) * diag(2L)
 
-  v          <- .compute_variance_delta(n, n_k, tau_k, ate_hat, g, g, V1, V0, s_k)
+  v          <- .compute_variance(
+    n = n, n_k = c(n_1, n - n_1), tau_k = c(0.5, 0.5), ate_hat = 0.5, s_k = c(0, 0),
+    n_1 = n_1, heterogeneous = TRUE, heteroscedastic_arms = FALSE,
+    g = g, vcov_treated = V1, vcov_control = V0,
+    sigma2_hat = 1.0
+  )
   param_only <- as.numeric(g %*% V1 %*% g) + as.numeric(g %*% V0 %*% g)
   expect_equal(v, param_only, tolerance = 1e-10)
 })
 
-test_that(".compute_variance_delta continuous-heterogeneous matches homogeneous closed form when X_bar = 0 and balanced Gram", {
+test_that(".compute_variance het and hom formulas agree when X_bar = 0 and balanced Gram", {
   # With X_bar = 0, g = c(1, 0), and (G^w)^{-1} = (1/n_w) * I (balanced, centred X),
-  # the param term = sigma2 * (1/n_1 + 1/n_0) = sigma2 / (n * p * (1-p)),
-  # recovering the homogeneous closed form.
+  # param_var_het = sigma2*(1/n_1 + 1/n_0) = sigma2/(n*p*(1-p)) = param_var_hom.
+  # Both sampling terms are zero (s_k = 0, tau_k = ate_hat).
   n          <- 200L
   n_1        <- 100L
   d          <- 1L
-  rss_k      <- 40.0
-  s_k        <- 0.0
-  n_k        <- 200L
-  tau_k      <- 0.5
-  ate_hat    <- 0.5
-  sigma2_hat <- rss_k / (n - 2L * (d + 1L))
-  p_hat      <- n_1 / n
+  sigma2_hat <- 40.0 / (n - 2L * (d + 1L))
+  vcov_1     <- (1 / n_1)       * diag(d + 1L)
+  vcov_0     <- (1 / (n - n_1)) * diag(d + 1L)
 
-  vcov_1      <- (1 / n_1)        * diag(d + 1L)
-  vcov_0      <- (1 / (n - n_1))  * diag(d + 1L)
-  x_bar_prime <- c(1, 0.0)
-
-  v_het <- .compute_variance_delta(
-    n, n_k, tau_k, ate_hat,
-    g_treated    = x_bar_prime,
-    g_control    = x_bar_prime,
-    vcov_treated = sigma2_hat * vcov_1,
-    vcov_control = sigma2_hat * vcov_0,
-    s_k          = s_k
+  v_het <- .compute_variance(
+    n = n, n_k = n, tau_k = 0.5, ate_hat = 0.5, s_k = 0.0,
+    n_1 = n_1, heterogeneous = TRUE, heteroscedastic_arms = FALSE,
+    g = c(1, 0.0), vcov_treated = vcov_1, vcov_control = vcov_0,
+    sigma2_hat = sigma2_hat
   )
-  tss   <- sum(s_k + n_k * (tau_k - ate_hat)^2)
-  v_hom <- sigma2_hat / (n * p_hat * (1 - p_hat)) + tss / (n * (n - 1L))
+  v_hom <- .compute_variance(
+    n = n, n_k = n, tau_k = 0.5, ate_hat = 0.5, s_k = 0.0,
+    n_1 = n_1, heterogeneous = FALSE, heteroscedastic_arms = FALSE,
+    sigma2_hat = sigma2_hat
+  )
   expect_equal(v_het, v_hom, tolerance = 1e-10)
 })
 

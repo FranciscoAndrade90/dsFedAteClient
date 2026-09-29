@@ -38,14 +38,13 @@
 #' @param covariate_names A character vector of covariate names.
 #' @param compute_variance Logical. If \code{TRUE} (default), the function
 #'   returns a delta-method variance estimate and a 95% confidence interval in
-#'   addition to the ATE point estimate.  To compute these, each server returns
-#'   additional statistics (residual sum of squares and projected scatter
-#'   scalar), and — when \code{heterogeneous = TRUE} — the per-arm Gram
+#'   addition to the ATE point estimate.  To compute these, the per-arm Gram
 #'   inverses are obtained by calling \code{ds.glm} with
-#'   \code{viewVarCov = TRUE}, and each server additionally returns covariate
-#'   column sums.  All of this constitutes an extra disclosure step.  Set to
-#'   \code{FALSE} to return only the ATE point estimate and minimise the
-#'   information shared by each server.
+#'   \code{viewVarCov = TRUE}, and each server additionally returns the
+#'   within-site projected scatter scalar and — when
+#'   \code{heterogeneous = TRUE} — covariate column sums.  All of this
+#'   constitutes an extra disclosure step.  Set to \code{FALSE} to return only
+#'   the ATE point estimate and minimise the information shared by each server.
 #' @param study_effects Logical. If \code{FALSE} (default), the no-study-effects
 #'   model is assumed (potential outcome model defined in equation (2) of Khellaf et al., 2025):
 #'   there is no arrow H -> Y in the DAG, meaning study membership does not
@@ -64,21 +63,22 @@
 #'   \code{TRUE} (default) makes no assumption about the participating RCTs:
 #'   each site may have a different covariate distribution and a different
 #'   treatment probability.  The leverage-corrected OLS noise component is
-#'   computed from the per-arm Gram inverses returned by
-#'   \code{ds.glm(viewVarCov = TRUE)}, using the global covariate mean
-#'   assembled from per-server column sums returned by \code{localAteDS()}.
+#'   computed from the per-arm Gram inverses (always returned via
+#'   \code{ds.glm(viewVarCov = TRUE)} when \code{compute_variance = TRUE}),
+#'   using the global covariate mean assembled from per-server column sums
+#'   returned by \code{localAteDS()}.
 #'   \code{FALSE} assumes that all RCTs share the same covariate distribution
 #'   and uses a simpler closed-form variance that is exact only under this
 #'   homogeneity assumption (constant covariate means and treatment
 #'   probabilities across sites).
 #'   Has no effect when \code{compute_variance = FALSE}.
 #' @param heteroscedastic_arms Logical. If \code{FALSE} (default), the noise
-#'   variance \eqn{\sigma^2} is assumed identical in both arms and estimated
-#'   from the pooled residual sum of squares across treated and control
-#'   observations.  If \code{TRUE}, arm-specific noise variances
-#'   \eqn{\sigma_1^2} and \eqn{\sigma_0^2} are estimated separately from each
-#'   arm's residual sum of squares, and the variance formula is adjusted
-#'   accordingly.  Has no effect when \code{compute_variance = FALSE}.
+#'   variance \eqn{\sigma^2} is assumed identical in both arms and estimated by
+#'   pooling the arm-specific deviances from \code{ds.glm} weighted by their
+#'   residual degrees of freedom.  If \code{TRUE}, arm-specific noise variances
+#'   \eqn{\sigma_1^2} and \eqn{\sigma_0^2} are estimated from each arm's
+#'   deviance and residual df, and the variance formula is adjusted accordingly.
+#'   Has no effect when \code{compute_variance = FALSE}.
 #'
 #' @return A list. When \code{compute_variance = TRUE} (the default),
 #'   seven elements:
@@ -257,39 +257,27 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
   # When study_effects = TRUE, d already includes the K-1 dummies, so the
   # denominator automatically becomes n - 2(d_orig + K) as required.
   # The same logic applies to arm-specific df: n_w - (d + 1).
-  n_0 <- n - n_1
-  if (heteroscedastic_arms) {
-    sigma2_hat_1 <- sum(local_results$rss_k_1) / (n_1 - (d + 1L))
-    sigma2_hat_0 <- sum(local_results$rss_k_0) / (n_0 - (d + 1L))
-  } else {
-    sigma2_hat <- sum(local_results$rss_k_1 + local_results$rss_k_0) /
-                  (n - 2L * (d + 1L))
-  }
+  sigma2_hat_1 <- model_treated$dev / model_treated$df
+  sigma2_hat_0 <- model_control$dev / model_control$df
+  sigma2_hat   <- (model_treated$dev + model_control$dev) /
+                  (model_treated$df + model_control$df)
 
-  if (heterogeneous) {
-    variance <- .compute_variance_delta(
-      n            = n,
-      n_k          = n_k,
-      tau_k        = tau_k,
-      ate_hat      = ate_hat,
-      g_treated    = local_results$g1,
-      g_control    = local_results$g0,
-      vcov_treated = if (heteroscedastic_arms) sigma2_hat_1 * model_treated$VarCovMatrix
-                     else                    sigma2_hat   * model_treated$VarCovMatrix,
-      vcov_control = if (heteroscedastic_arms) sigma2_hat_0 * model_control$VarCovMatrix
-                     else                    sigma2_hat   * model_control$VarCovMatrix,
-      s_k          = local_results$s_k
-    )
-  } else {
-    p_hat <- n_1 / n
-    tss   <- sum(local_results$s_k + n_k * (tau_k - ate_hat)^2)
-    if (heteroscedastic_arms) {
-      variance <- sigma2_hat_1 / (n * p_hat) + sigma2_hat_0 / (n * (1 - p_hat)) +
-                  tss / (n * (n - 1L))
-    } else {
-      variance <- sigma2_hat / (n * p_hat * (1 - p_hat)) + tss / (n * (n - 1L))
-    }
-  }
+  variance <- .compute_variance(
+    n                    = n,
+    n_k                  = n_k,
+    tau_k                = tau_k,
+    ate_hat              = ate_hat,
+    s_k                  = local_results$s_k,
+    n_1                  = n_1,
+    heterogeneous        = heterogeneous,
+    heteroscedastic_arms = heteroscedastic_arms,
+    g            = local_results$g,
+    vcov_treated = model_treated$VarCovMatrix,
+    vcov_control = model_control$VarCovMatrix,
+    sigma2_hat   = sigma2_hat,
+    sigma2_hat_1 = sigma2_hat_1,
+    sigma2_hat_0 = sigma2_hat_0
+  )
 
   se       <- sqrt(variance)
   ci_lower <- ate_hat - 1.96 * se
@@ -346,33 +334,37 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     tau_k = vapply(results, `[[`, 1.0, "tau_k")
   )
   if (compute_variance) {
-    out$s_k     <- vapply(results, `[[`, 1.0, "s_k")
-    out$rss_k_1 <- vapply(results, `[[`, 1.0, "rss_k_1")
-    out$rss_k_0 <- vapply(results, `[[`, 1.0, "rss_k_0")
-  }
-  if (compute_variance && heterogeneous) {
-    n      <- sum(out$n_k)
-    # Both gradients equal (1, x_bar): d_tau/d_theta1 = +(1, x_bar) and
-    # d_tau/d_theta0 = -(1, x_bar), but the sign cancels in the quadratic form
-    # g^T V g, so we use the same positive vector for both arms.
-    g_bar  <- Reduce("+", lapply(results, `[[`, "g1_raw_k")) / n
-    out$g1 <- g_bar
-    out$g0 <- g_bar
+    out$s_k <- vapply(results, `[[`, 1.0, "s_k")
+    if (heterogeneous) {
+      out$g <- Reduce("+", lapply(results, `[[`, "g_raw_k")) / sum(out$n_k)
+    }
   }
   out
 }
 
 #' @keywords internal
 #' @noRd
-.compute_variance_delta <- function(n, n_k, tau_k, ate_hat,
-                                    g_treated, g_control,
-                                    vcov_treated, vcov_control,
-                                    s_k) {
-  param_term <- as.numeric(g_treated %*% vcov_treated %*% g_treated) +
-                as.numeric(g_control %*% vcov_control %*% g_control)
-  tss        <- sum(s_k + n_k * (tau_k - ate_hat)^2)
-  samp_term  <- tss / (n * (n - 1L))
-  param_term + samp_term
+.compute_variance <- function(n, n_k, tau_k, ate_hat, s_k, n_1,
+                               heterogeneous, heteroscedastic_arms,
+                               g = NULL, vcov_treated = NULL, vcov_control = NULL,
+                               sigma2_hat = NULL, sigma2_hat_1 = NULL,
+                               sigma2_hat_0 = NULL) {
+  tss      <- sum(s_k + n_k * (tau_k - ate_hat)^2)
+  samp_var <- tss / (n * (n - 1L))
+
+  if (heterogeneous) {
+    sigma_1   <- if (heteroscedastic_arms) sigma2_hat_1 else sigma2_hat
+    sigma_0   <- if (heteroscedastic_arms) sigma2_hat_0 else sigma2_hat
+    param_var <- as.numeric(g %*% (sigma_1 * vcov_treated) %*% g) +
+                 as.numeric(g %*% (sigma_0 * vcov_control) %*% g)
+  } else {
+    p_hat     <- n_1 / n
+    param_var <- if (heteroscedastic_arms)
+      sigma2_hat_1 / (n * p_hat) + sigma2_hat_0 / (n * (1 - p_hat))
+    else
+      sigma2_hat / (n * p_hat * (1 - p_hat))
+  }
+  param_var + samp_var
 }
 
 
