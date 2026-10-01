@@ -17,12 +17,12 @@
 #' \strong{Server-side objects created.}
 #' Two symbols are always created per server: \code{base_name_treated}
 #' (treated-arm subset) and \code{base_name_control} (control-arm subset),
-#' both used by \code{ds.glm}.  When \code{study_effects = TRUE} is set,
-#' a third symbol is also created: \code{base_name_study_adj}, holding the
-#' data frame augmented with the K-1 study dummy columns.  All three
-#' persist in the server workspace after the function returns, as is typical
-#' for DataSHIELD assign operations.  The caller's original
-#' \code{base_name} object is never modified.
+#' both used by \code{ds.glm}.  When \code{study_effects = TRUE}, a third
+#' symbol \code{base_name_study_adj} is also created, holding the data
+#' frame augmented with the K-1 study dummy columns.  All three persist
+#' in the server workspace after the function returns, as is typical for
+#' DataSHIELD assign operations.  The caller's original \code{base_name}
+#' object is never modified.
 #'
 #' When \code{compute_variance = TRUE} (the default), a delta-method variance
 #' estimate and 95% confidence interval are also returned.  The formula used
@@ -72,13 +72,14 @@
 #'   homogeneity assumption (constant covariate means and treatment
 #'   probabilities across sites).
 #'   Has no effect when \code{compute_variance = FALSE}.
-#' @param heteroscedastic_arms Logical. If \code{FALSE} (default), the noise
-#'   variance \eqn{\sigma^2} is assumed identical in both arms and estimated by
-#'   pooling the arm-specific deviances from \code{ds.glm} weighted by their
-#'   residual degrees of freedom.  If \code{TRUE}, arm-specific noise variances
-#'   \eqn{\sigma_1^2} and \eqn{\sigma_0^2} are estimated from each arm's
-#'   deviance and residual df, and the variance formula is adjusted accordingly.
-#'   Has no effect when \code{compute_variance = FALSE}.
+#' @param heteroscedastic_arms Logical.  Only has effect when
+#'   \code{compute_variance = TRUE}.  If \code{FALSE} (default), the noise
+#'   variance \eqn{\sigma^2} is assumed identical in both arms and estimated
+#'   by pooling the arm-specific deviances from \code{ds.glm} weighted by
+#'   their residual degrees of freedom.  If \code{TRUE}, arm-specific
+#'   variances \eqn{\sigma_1^2} and \eqn{\sigma_0^2} are estimated from
+#'   each arm's deviance and residual df, and the variance formula is
+#'   adjusted accordingly.
 #'
 #' @return A list. When \code{compute_variance = TRUE} (the default),
 #'   seven elements:

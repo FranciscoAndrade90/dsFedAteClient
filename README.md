@@ -4,26 +4,42 @@
 <!-- badges: start -->
 <!-- badges: end -->
 
-The goal of dsRctFedClient is to enable the federated computation of the average treatment effect using 
-data collected in a randomized controlled trial (RCT) setting. 
-This package is intended to be installed on the analyst (client) side.
-The corresponding server-side (where the data is stored) package is called dsRctFed.
+Client-side 'DataSHIELD' package for federated estimation of the average
+treatment effect (ATE) across multiple independent randomised controlled
+trials (RCTs), each held on a separate data server. `dsRctFedClient` runs on
+the analyst's machine; the companion server-side package `dsRctFed` must be
+installed on each data node.
 
 ## Installation
 
-You can install the development version of dsRctFedClient from [GitHub](https://github.com/) with:
-
-``` r
-# install.packages("pak")
-pak::pak("FranciscoAndrade90/dsRctFedClient")
+```r
+install.packages("dsRctFedClient")
 ```
 
 ## Example
 
-This is a basic example which shows you how to solve a common problem:
-
-``` r
+```r
 library(dsRctFedClient)
-## basic example code
+
+conns <- DSI::datashield.login(logins = logindata, assign = TRUE,
+                               symbol = "base")
+
+result <- ds.EstimateAte(
+  datasources     = conns,
+  base_name       = "base",
+  outcome_name    = "Y",
+  treatment_name  = "W",
+  covariate_names = c("X1", "X2", "X3"),
+  heterogeneous   = TRUE
+)
+
+result$ate
+result$ci_lower; result$ci_upper
 ```
 
+A full worked example — including arm-specific variance and study-effects
+adjustment, run locally with `DSLite` — is provided in the vignette:
+
+```r
+vignette("getting_started", package = "dsRctFedClient")
+```

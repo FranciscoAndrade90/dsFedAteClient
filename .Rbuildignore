@@ -1,11 +1,12 @@
 ^dsRctFedClient\.Rproj$
 ^\.Rproj\.user$
 ^LICENSE\.md$
+^cran-comments\.md$
 ^dev$
 ^doc$
 ^Meta$
-^vignettes/.*\.html$
-^vignettes/.*\.pdf$
-^vignettes/.*\.log$
-^vignettes/.*\.png$
+^dsRctFedClient_.*\.tar\.gz$
+^vignettes/getting_started\.html$
+^vignettes/getting_started\.pdf$
 ^vignettes/\.DS_Store$
+^vignettes/\.gitignore$

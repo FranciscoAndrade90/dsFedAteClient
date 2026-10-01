@@ -9,7 +9,7 @@ Authors@R:
     person(given = "Julie",
            family = "Josse",
            role = "aut"))
-Description: Client-side DataSHIELD package that orchestrates the federated
+Description: Client-side 'DataSHIELD' package that orchestrates the federated
     estimation of the average treatment effect (ATE) across multiple independent
     randomised controlled trials (RCTs), each held on a separate data server.
     Implements the generalised difference estimator of Khellaf, Bellet and Josse

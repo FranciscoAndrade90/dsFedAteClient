@@ -1,4 +1,9 @@
 .Rproj.user
+.Rhistory
 inst/doc
 /doc/
 /Meta/
+dev/*.aux
+dev/*.log
+dev/*.out
+dev/*.toc
