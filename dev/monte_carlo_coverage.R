@@ -12,7 +12,7 @@
 
 library(DSLite)
 library(DSI)
-devtools::load_all("../dsRctFed")
+devtools::load_all("../dsFedAte")
 devtools::load_all(".")
 
 options(
@@ -37,7 +37,7 @@ make_conns <- function(sites) {
   builder   <- DSI::newDSLoginBuilder()
   for (k in seq_along(sites)) {
     srv <- DSLite::newDSLiteServer(tables = list(study_data = sites[[k]]))
-    srv$config(defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+    srv$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
     srv$aggregateMethod("localAteDS",                        "localAteDS")
     srv$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
     srv$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")

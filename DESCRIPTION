@@ -1,4 +1,4 @@
-Package: dsRctFedClient
+Package: dsFedAteClient
 Title: Federated Average Treatment Effect Estimation Across Multiple RCTs
 Version: 0.1.1
 Authors@R: 
@@ -26,7 +26,7 @@ Imports:
     methods
 Suggests:
     devtools,
-    dsRctFed,
+    dsFedAte,
     DSLite,
     knitr,
     MASS,

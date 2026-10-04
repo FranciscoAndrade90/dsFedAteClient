@@ -2,14 +2,14 @@ library(DSLite)
 # devtools::test() runs from tests/testthat/ so the relative path resolves.
 # devtools::check() copies to a temp dir where it does not — fall back to the
 # installed package (if available) or skip all tests.
-server_src <- "../../../dsRctFed"
+server_src <- "../../../dsFedAte"
 if (dir.exists(server_src)) {
   devtools::load_all(server_src, quiet = TRUE)
-} else if (requireNamespace("dsRctFed", quietly = TRUE)) {
-  library(dsRctFed)
+} else if (requireNamespace("dsFedAte", quietly = TRUE)) {
+  library(dsFedAte)
 } else {
   setupDSLite <- function() {
-    testthat::skip("dsRctFed is not installed and source path is unavailable")
+    testthat::skip("dsFedAte is not installed and source path is unavailable")
   }
 }
 
@@ -34,7 +34,7 @@ setupDSLite <- function() {
   assign("dslite.server", dslite.server, envir = .GlobalEnv)
   options(datashield.env = .GlobalEnv)
 
-  dslite.server$config(defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  dslite.server$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   dslite.server$aggregateMethod("localAteDS",                        "localAteDS")
   dslite.server$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
   dslite.server$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")
@@ -100,7 +100,7 @@ setupDSLiteStudyEffects <- function() {
   servers <- lapply(seq_along(sites), function(k) {
     srv_name <- paste0("dslite.study.server.", k)
     srv      <- DSLite::newDSLiteServer(tables = list(study_data = sites[[k]]))
-    srv$config(defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+    srv$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
     srv$aggregateMethod("localAteDS",                        "localAteDS")
     srv$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
     srv$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")

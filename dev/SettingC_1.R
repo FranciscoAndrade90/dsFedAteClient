@@ -6,7 +6,7 @@ library(MASS)
 library(devtools)
 
 devtools::load_all(".")
-devtools::load_all("../dsRctFed")
+devtools::load_all("../dsFedAte")
 
 # ============================================================================
 # STEP 2: Generate Data for Setting C.1
@@ -88,7 +88,7 @@ for (k in 1:K) {
   )
 
   # Configure it
-  server_obj$config(defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  server_obj$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   server_obj$aggregateMethod("localAteDS", "localAteDS")
 
   # Assign it to the environment with the dynamic name

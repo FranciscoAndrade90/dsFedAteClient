@@ -1,6 +1,6 @@
 library(devtools)
 devtools::load_all(".")
-devtools::load_all("../dsRctFed")
+devtools::load_all("../dsFedAte")
 
 # ============================================================================
 # DGP (same as verify_binary_ate.R)

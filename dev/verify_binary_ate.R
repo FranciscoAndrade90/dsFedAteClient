@@ -5,7 +5,7 @@ library(dsBaseClient)
 library(devtools)
 
 devtools::load_all(".")
-devtools::load_all("../dsRctFed")
+devtools::load_all("../dsFedAte")
 
 # ============================================================================
 # Data-generating process
@@ -90,7 +90,7 @@ builder <- DSI::newDSLoginBuilder()
 for (k in seq_len(K)) {
   srv_name <- paste0("dslite.server.bin.", k)
   srv      <- DSLite::newDSLiteServer(tables = list(study_data = data_list[[k]]))
-  srv$config(defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  srv$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS",                        "localAteDS")
   srv$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
   srv$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")

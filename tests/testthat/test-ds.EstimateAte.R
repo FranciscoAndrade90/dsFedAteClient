@@ -1,10 +1,10 @@
 library(testthat)
 
-# Skip the whole file when dsRctFed is neither loadable from source nor installed.
+# Skip the whole file when dsFedAte is neither loadable from source nor installed.
 # This happens in devtools::check() when Suggests are not force-installed.
 testthat::skip_if(
-  !dir.exists("../../../dsRctFed") && !requireNamespace("dsRctFed", quietly = TRUE),
-  "dsRctFed is not installed and source path is unavailable"
+  !dir.exists("../../../dsFedAte") && !requireNamespace("dsFedAte", quietly = TRUE),
+  "dsFedAte is not installed and source path is unavailable"
 )
 
 source("setupDSLite.R")
@@ -259,7 +259,7 @@ test_that("ds.EstimateAte errors with informative message when disclosure contro
 
   dslite.server.imb <- DSLite::newDSLiteServer(tables = list(study_data = imb))
   assign("dslite.server.imb", dslite.server.imb, envir = .GlobalEnv)
-  dslite.server.imb$config(defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  dslite.server.imb$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   dslite.server.imb$aggregateMethod("localAteDS",                        "localAteDS")
   dslite.server.imb$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
   dslite.server.imb$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")

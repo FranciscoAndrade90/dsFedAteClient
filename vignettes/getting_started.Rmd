@@ -14,8 +14,8 @@ knitr::opts_chunk$set(
   comment = "#>"
 )
 
-eval_chunks <- requireNamespace("dsRctFed",       quietly = TRUE) &&
-               requireNamespace("dsRctFedClient", quietly = TRUE) &&
+eval_chunks <- requireNamespace("dsFedAte",       quietly = TRUE) &&
+               requireNamespace("dsFedAteClient", quietly = TRUE) &&
                requireNamespace("MASS",           quietly = TRUE) &&
                requireNamespace("DSLite",         quietly = TRUE) &&
                requireNamespace("dsBaseClient",   quietly = TRUE)
@@ -27,7 +27,7 @@ knitr::opts_hooks$set(eval = function(options) {
 ```
 
 ```{r setup, eval = FALSE}
-library(dsRctFedClient)
+library(dsFedAteClient)
 ```
 
 Randomised Controlled Trials (RCTs) are the gold standard for estimating causal treatment
@@ -56,8 +56,8 @@ site-specific intercept shifts that would otherwise confound the unadjusted esti
 ## Installation
 
 ```{r, eval = FALSE}
-install.packages("dsRctFedClient")  # client package (analyst machine)
-install.packages("dsRctFed")        # server package (deployed on each data node)
+install.packages("dsFedAteClient")  # client package (analyst machine)
+install.packages("dsFedAte")        # server package (deployed on each data node)
 ```
 
 ## Estimator
@@ -104,8 +104,8 @@ All examples use **DSLite** to emulate a federated DataSHIELD infrastructure loc
 In a real deployment each site would run a dedicated institutional server.
 
 ```{r, eval = TRUE}
-library(dsRctFedClient)
-library(dsRctFed)
+library(dsFedAteClient)
+library(dsFedAte)
 library(DSLite)
 library(MASS)
 ```
@@ -172,7 +172,7 @@ options(
 
 for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list[[k]]))
-  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
   assign(paste0("dslite.server", k), srv, envir = .GlobalEnv)
 }
@@ -264,7 +264,7 @@ options(datashield.privacyControlLevel = "banana", nfilter.glm = 0.33)
 
 for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_2[[k]]))
-  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
   assign(paste0("dslite.server2_", k), srv, envir = .GlobalEnv)
 }
@@ -300,7 +300,7 @@ options(datashield.privacyControlLevel = "permissive", nfilter.glm = 1.0)
 
 for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_2[[k]]))
-  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
   assign(paste0("dslite.server2_", k), srv, envir = .GlobalEnv)
 }
@@ -390,7 +390,7 @@ options(datashield.privacyControlLevel = "banana", nfilter.glm = 0.33)
 
 for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_het[[k]]))
-  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
   assign(paste0("dslite.server_het", k), srv, envir = .GlobalEnv)
 }
@@ -492,7 +492,7 @@ options(datashield.privacyControlLevel = "banana", nfilter.glm = 0.33)
 
 for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_3[[k]]))
-  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
   srv$assignMethod("addStudyIdDS", "addStudyIdDS")
   assign(paste0("dslite.server3_", k), srv, envir = .GlobalEnv)

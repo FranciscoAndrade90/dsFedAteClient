@@ -8,7 +8,7 @@
 
 library(DSLite)
 library(DSI)
-devtools::load_all("../dsRctFed")
+devtools::load_all("../dsFedAte")
 devtools::load_all(".")
 
 # ── 1. Generate data ───────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ pooled    <- do.call(rbind, sites)
 
 srv <- lapply(sites, function(df) {
   s <- DSLite::newDSLiteServer(tables = list(study_data = df))
-  s$config(defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  s$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   s$aggregateMethod("localAteDS",                        "localAteDS")
   s$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
   s$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")

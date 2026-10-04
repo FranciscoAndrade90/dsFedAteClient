@@ -1,4 +1,4 @@
 library(testthat)
-library(dsRctFedClient)
+library(dsFedAteClient)
 
-test_check("dsRctFedClient")
+test_check("dsFedAteClient")

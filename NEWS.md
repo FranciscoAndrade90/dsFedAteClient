@@ -1,4 +1,4 @@
-# dsRctFedClient 0.1.1
+# dsFedAteClient 0.1.1
 
 ## Changes
 
@@ -8,7 +8,7 @@
   than a pooled \eqn{\sigma^2}, and the variance formula is adjusted
   accordingly in both the delta-method and homogeneous closed-form branches.
 
-# dsRctFedClient 0.1.0
+# dsFedAteClient 0.1.0
 
 Initial release.
 

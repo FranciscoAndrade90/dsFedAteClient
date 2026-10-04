@@ -1,5 +1,5 @@
-devtools::load_all("/home/francisco/DATASHIELD/dsRctFedClient")
-devtools::load_all("/home/francisco/DATASHIELD/dsRctFed")
+devtools::load_all("/home/francisco/DATASHIELD/dsFedAteClient")
+devtools::load_all("/home/francisco/DATASHIELD/dsFedAte")
 
 library(DSLite)
 library(MASS)
@@ -74,7 +74,7 @@ options(
 for (k in 1:K) {
   server_name <- paste0("dslite.server", k)
   server_obj  <- newDSLiteServer(tables = list(study_data = data_list[[k]]))
-  server_obj$config(defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+  server_obj$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   server_obj$aggregateMethod("localAteDS", "localAteDS")
   assign(server_name, server_obj, envir = .GlobalEnv)
 }

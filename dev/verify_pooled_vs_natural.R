@@ -13,7 +13,7 @@
 
 library(DSLite)
 library(DSI)
-devtools::load_all("../dsRctFed")
+devtools::load_all("../dsFedAte")
 devtools::load_all(".")
 
 # ── Helper: build DSLite connections from a list of data frames ───────────────
@@ -22,7 +22,7 @@ make_conns <- function(sites) {
   srvs <- lapply(sites, function(df)
     DSLite::newDSLiteServer(tables = list(study_data = df)))
   for (srv in srvs) {
-    srv$config(defaultDSConfiguration(include = c("dsBase", "dsRctFed")))
+    srv$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
     srv$aggregateMethod("localAteDS",                        "localAteDS")
     srv$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
     srv$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")
