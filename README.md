@@ -5,10 +5,10 @@
 <!-- badges: end -->
 
 Client-side 'DataSHIELD' package for federated estimation of the average
-treatment effect (ATE) across multiple independent randomised controlled
-trials (RCTs), each held on a separate data server. `dsFedAteClient` runs on
-the analyst's machine; the companion server-side package `dsFedAte` must be
-installed on each data node.
+treatment effect (ATE) across multiple independent studies, each held on
+a separate data server. `dsFedAteClient` runs on the analyst's machine;
+the companion server-side package `dsFedAte` must be installed on each
+data node.
 
 ## Installation
 
@@ -41,5 +41,5 @@ A full worked example — including arm-specific variance and study-effects
 adjustment, run locally with `DSLite` — is provided in the vignette:
 
 ```r
-vignette("getting_started", package = "dsFedAteClient")
+vignette("federated_rct", package = "dsFedAteClient")
 ```

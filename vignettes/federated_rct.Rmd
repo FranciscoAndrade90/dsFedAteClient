@@ -1,9 +1,9 @@
 ---
-title: "Federated Average Treatment Effect Estimation"
+title: "Federated ATE for Randomised Controlled Trials"
 output: rmarkdown::html_vignette
 bibliography: biblio.bib
 vignette: >
-  %\VignetteIndexEntry{Federated Average Treatment Effect Estimation}
+  %\VignetteIndexEntry{Federated ATE for Randomised Controlled Trials}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---

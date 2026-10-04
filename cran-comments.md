@@ -17,7 +17,7 @@ pair. The companion server-side package `dsFedAte` is submitted first;
 at which point the "Suggests not in mainstream repositories" NOTE
 clears.
 
-`dsFedAte` is listed under `Suggests:` because the `getting_started`
+`dsFedAte` is listed under `Suggests:` because the `federated_rct`
 vignette and the test suite exercise the end-to-end federated workflow
 against local `DSLite` servers that load `dsFedAte`. Those vignette
 chunks and tests are guarded with `requireNamespace()` and are skipped
