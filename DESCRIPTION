@@ -1,5 +1,5 @@
 Package: dsFedAteClient
-Title: Federated Average Treatment Effect Estimation Across Multiple Studies
+Title: Federated Average Treatment Effect Estimation Across Studies
 Version: 0.1.0
 Authors@R:
   c(person(given = "Francisco",
