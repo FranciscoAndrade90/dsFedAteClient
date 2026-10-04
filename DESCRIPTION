@@ -1,11 +1,14 @@
 Package: dsFedAteClient
-Title: Federated Average Treatment Effect Estimation Across Multiple RCTs
+Title: Federated Average Treatment Effect Estimation Across Multiple Studies
 Version: 0.1.1
-Authors@R: 
+Authors@R:
   c(person(given = "Francisco",
            family = "Andrade",
            role = c("aut", "cre"),
            email = "francisco.de-lima-andrade@inria.fr"),
+    person(given = "Rémi",
+           family = "Khellaf",
+           role = "aut"),
     person(given = "Julie",
            family = "Josse",
            role = "aut"))
