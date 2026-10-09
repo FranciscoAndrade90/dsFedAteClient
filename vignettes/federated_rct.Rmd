@@ -49,7 +49,8 @@ knitr::include_graphics(ifelse(knitr::is_latex_output(), "figure_federated.pdf",
 estimation procedure. Four examples then illustrate the method under progressively
 richer conditions: Example 1 covers the baseline homogeneous covariate distributions setting and verifies that
 the federated estimator matches the centralised one; Example 2 shows how DataSHIELD's
-disclosure controls interact with estimation and when they block it; Example 3 extends
+`nfilter.glm` disclosure threshold governs whether estimation is feasible under extreme
+treatment imbalance; Example 3 extends
 the analysis to sites with heterogeneous covariate distributions; Example 4 addresses
 site-specific intercept shifts that would otherwise confound the unadjusted estimator.
 
@@ -192,7 +193,7 @@ DSI::datashield.assign.table(conns = conns, table = "study_data", symbol = "base
 
 ### Estimate
 
-```{r, results = "hide", message = FALSE}
+```{r, eval = TRUE}
 outcome_name    <- "Y"
 treatment_name  <- "W"
 covariate_names <- paste0("X", seq_len(d))
@@ -203,7 +204,8 @@ federated_ate <- ds.EstimateAte(
   outcome_name    = outcome_name,
   treatment_name  = treatment_name,
   covariate_names = covariate_names,
-  heterogeneous   = FALSE
+  heterogeneous   = FALSE,
+  quiet           = TRUE
 )
 ```
 
@@ -233,11 +235,19 @@ isTRUE(all.equal(pooled_ate, federated_ate$ate))
 DSI::datashield.logout(conns)
 ```
 
-## Example 2 — Privacy settings
+## Example 2 — Disclosure thresholds
 
 Same model, but extreme treatment probabilities (0.9 / 0.1) produce very small arm sizes
-at some sites. The default `banana` settings block estimation; switching to `permissive`
-allows it.
+at some sites. With $n_k = 200$ and $p = 0.1$, the expected minority arm has only 20
+observations. The default `nfilter.glm = 0.33` blocks estimation because the GLM has
+$d + 1 = 11$ parameters and $11/20 = 0.55 > 0.33$.
+
+DataSHIELD enforces two distinct mechanisms: the *privacy control level* (`"banana"`,
+`"permissive"`, etc.) gates which functions may be called at all, while `nfilter.*`
+thresholds gate what values those functions will return. Both `localAteDS` and
+`addStudyIdDS` are permitted under `"banana"` (the default), so the privacy level is not
+the binding constraint. Raising `nfilter.glm` alone — while keeping `"banana"` — is
+sufficient to unblock estimation.
 
 ### Data
 
@@ -293,10 +303,10 @@ ds.EstimateAte(
 )
 ```
 
-### Permissive settings — succeeds
+### Raised GLM threshold — succeeds
 
 ```{r, eval = TRUE}
-options(datashield.privacyControlLevel = "permissive", nfilter.glm = 1.0)
+options(datashield.privacyControlLevel = "banana", nfilter.glm = 1.0)
 
 for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_2[[k]]))
@@ -308,14 +318,15 @@ conns_2 <- DSI::datashield.login(logins = builder2$build(), assign = FALSE)
 DSI::datashield.assign.table(conns = conns_2, table = "study_data", symbol = "base")
 ```
 
-```{r, results = "hide", message = FALSE}
+```{r, eval = TRUE}
 federated_ate_2 <- ds.EstimateAte(
   datasources     = conns_2,
   base_name       = "base",
   outcome_name    = outcome_name,
   treatment_name  = treatment_name,
   covariate_names = covariate_names,
-  heterogeneous   = FALSE
+  heterogeneous   = FALSE,
+  quiet           = TRUE
 )
 ```
 
@@ -326,7 +337,8 @@ cat(sprintf("ATE: %.4f  SE: %.4f  95%% CI: [%.4f, %.4f]  True ATE: %.4f\n",
 ```
 
 The standard error is larger than in Example 1: extreme treatment imbalance reduces the
-effective sample size for both arms.
+effective sample size for both arms. The privacy control level (`"banana"`) is unchanged
+throughout — only the GLM disclosure threshold was relaxed.
 
 ```{r, eval = TRUE}
 DSI::datashield.logout(conns_2)
@@ -410,14 +422,15 @@ DSI::datashield.assign.table(conns = conns_het, table = "study_data", symbol = "
 
 ### Estimate
 
-```{r, results = "hide", message = FALSE}
+```{r, eval = TRUE}
 federated_ate_het <- ds.EstimateAte(
   datasources     = conns_het,
   base_name       = "base",
   outcome_name    = outcome_name,
   treatment_name  = treatment_name,
   covariate_names = covariate_names,
-  heterogeneous   = TRUE
+  heterogeneous   = TRUE,
+  quiet           = TRUE
 )
 ```
 
@@ -513,7 +526,7 @@ DSI::datashield.assign.table(conns = conns_3, table = "study_data", symbol = "ba
 
 ### Unadjusted — biased
 
-```{r, results = "hide", message = FALSE}
+```{r, eval = TRUE}
 federated_ate_unadj <- ds.EstimateAte(
   datasources     = conns_3,
   base_name       = "base",
@@ -521,7 +534,8 @@ federated_ate_unadj <- ds.EstimateAte(
   treatment_name  = treatment_name,
   covariate_names = covariate_names,
   study_effects   = FALSE,
-  heterogeneous   = TRUE
+  heterogeneous   = TRUE,
+  quiet           = TRUE
 )
 ```
 
@@ -538,16 +552,17 @@ cat(sprintf("Unadjusted ATE: %.4f   bias: %.4f   (true ATE: %.4f)\n",
 $\hat\sigma_1^2$ separately, giving a correctly specified standard error when
 $\sigma_0 \neq \sigma_1$.
 
-```{r, results = "hide", message = FALSE}
+```{r, eval = TRUE}
 federated_ate_adj <- ds.EstimateAte(
-  datasources        = conns_3,
-  base_name          = "base",
-  outcome_name       = outcome_name,
-  treatment_name     = treatment_name,
-  covariate_names    = covariate_names,
-  study_effects      = TRUE,
-  heterogeneous      = TRUE,
-  heteroscedastic_arms = TRUE
+  datasources          = conns_3,
+  base_name            = "base",
+  outcome_name         = outcome_name,
+  treatment_name       = treatment_name,
+  covariate_names      = covariate_names,
+  study_effects        = TRUE,
+  heterogeneous        = TRUE,
+  heteroscedastic_arms = TRUE,
+  quiet                = TRUE
 )
 ```
 

@@ -205,6 +205,39 @@ test_that(".compute_variance het and hom formulas agree when X_bar = 0 and balan
   expect_equal(v_het, v_hom, tolerance = 1e-10)
 })
 
+test_that(".compute_variance under !heterogeneous uses arm-specific sigmas when heteroscedastic_arms = TRUE", {
+  # Expected formula (!heterogeneous, heteroscedastic_arms):
+  #   V_param = sigma2_1 / (n * p) + sigma2_0 / (n * (1 - p)).
+  # It must differ from the pooled formula sigma2 / (n * p * (1 - p)) when sigma2_1 != sigma2_0.
+  # Both calls share the same (zero) sampling term so the comparison is clean.
+  n            <- 200L
+  n_1          <- 80L
+  p_hat        <- n_1 / n
+  sigma2_hat   <- 2.0
+  sigma2_hat_1 <- 3.0
+  sigma2_hat_0 <- 1.0
+
+  v_het <- .compute_variance(
+    n = n, n_k = n, tau_k = 0.5, ate_hat = 0.5, s_k = 0.0,
+    n_1 = n_1, heterogeneous = FALSE, heteroscedastic_arms = TRUE,
+    sigma2_hat = sigma2_hat,
+    sigma2_hat_1 = sigma2_hat_1,
+    sigma2_hat_0 = sigma2_hat_0
+  )
+  v_hom <- .compute_variance(
+    n = n, n_k = n, tau_k = 0.5, ate_hat = 0.5, s_k = 0.0,
+    n_1 = n_1, heterogeneous = FALSE, heteroscedastic_arms = FALSE,
+    sigma2_hat = sigma2_hat
+  )
+
+  expected_het <- sigma2_hat_1 / (n * p_hat) + sigma2_hat_0 / (n * (1 - p_hat))
+  expected_hom <- sigma2_hat / (n * p_hat * (1 - p_hat))
+
+  expect_equal(v_het, expected_het, tolerance = 1e-10)
+  expect_equal(v_hom, expected_hom, tolerance = 1e-10)
+  expect_false(isTRUE(all.equal(v_het, v_hom)))
+})
+
 # .check_sample_sizes ----------------------------------------------------------
 
 test_that(".check_sample_sizes warns when an arm is below 5*(d+1)", {
@@ -546,6 +579,43 @@ test_that("ds.EstimateAte heterogeneous=FALSE heteroscedastic_arms=TRUE variance
   expect_gt(result$variance, 0)
   expect_false(is.na(result$variance))
   expect_false(is.infinite(result$variance))
+})
+
+# quiet = TRUE -----------------------------------------------------------------
+
+test_that("ds.EstimateAte quiet=TRUE returns the same result as quiet=FALSE", {
+  r_noisy <- ds.EstimateAte(
+    datasources     = conns,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    quiet           = FALSE
+  )
+  r_quiet <- ds.EstimateAte(
+    datasources     = conns,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = c("X1", "X2"),
+    quiet           = TRUE
+  )
+  expect_equal(r_quiet$ate,      r_noisy$ate)
+  expect_equal(r_quiet$variance, r_noisy$variance)
+  expect_equal(r_quiet$n_total,  r_noisy$n_total)
+})
+
+test_that("ds.EstimateAte quiet=TRUE suppresses messages", {
+  expect_no_message(
+    ds.EstimateAte(
+      datasources     = conns,
+      base_name       = "study_data",
+      outcome_name    = "Y",
+      treatment_name  = "W",
+      covariate_names = c("X1", "X2"),
+      quiet           = TRUE
+    )
+  )
 })
 
 # .add_study_id ----------------------------------------------------------------

@@ -13,7 +13,8 @@ ds.EstimateAte(
   compute_variance = TRUE,
   study_effects = FALSE,
   heterogeneous = TRUE,
-  heteroscedastic_arms = FALSE
+  heteroscedastic_arms = FALSE,
+  quiet = FALSE
 )
 }
 \arguments{
@@ -77,6 +78,10 @@ their residual degrees of freedom.  If \code{TRUE}, arm-specific
 variances \eqn{\sigma_1^2} and \eqn{\sigma_0^2} are estimated from
 each arm's deviance and residual df, and the variance formula is
 adjusted accordingly.}
+
+\item{quiet}{Logical. If \code{TRUE}, suppresses all messages and printed
+output from the federated calls (\code{ds.glm}, \code{datashield.aggregate},
+etc.). Default \code{FALSE}.}
 }
 \value{
 A list. When \code{compute_variance = TRUE} (the default),

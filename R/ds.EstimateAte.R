@@ -80,6 +80,9 @@
 #'   variances \eqn{\sigma_1^2} and \eqn{\sigma_0^2} are estimated from
 #'   each arm's deviance and residual df, and the variance formula is
 #'   adjusted accordingly.
+#' @param quiet Logical. If \code{TRUE}, suppresses all messages and printed
+#'   output from the federated calls (\code{ds.glm}, \code{datashield.aggregate},
+#'   etc.). Default \code{FALSE}.
 #'
 #' @return A list. When \code{compute_variance = TRUE} (the default),
 #'   seven elements:
@@ -130,13 +133,16 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
                            compute_variance = TRUE,
                            study_effects = FALSE,
                            heterogeneous = TRUE,
-                           heteroscedastic_arms = FALSE) {
+                           heteroscedastic_arms = FALSE,
+                           quiet = FALSE) {
   if (is.null(datasources)) {
     datasources <- DSI::datashield.connections_find()
   }
 
   .check_datasources(datasources)
   .check_args(base_name, outcome_name, treatment_name, covariate_names)
+
+  .run <- function() {
 
   # Study-effects setup ---------------------------------------------------------
 
@@ -293,6 +299,10 @@ ds.EstimateAte <- function(datasources = NULL, base_name, outcome_name,
     n_k      = n_k,
     ate_k    = tau_k
   ))
+
+  } # end .run
+
+  if (quiet) suppressWarnings(suppressMessages(.run())) else .run()
 }
 
 
