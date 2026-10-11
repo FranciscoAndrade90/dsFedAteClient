@@ -32,7 +32,7 @@ indicator.}
 \item{covariate_names}{A character vector of covariate names.}
 
 \item{compute_variance}{Logical. If \code{TRUE} (default), the function
-returns a delta-method variance estimate and a 95\% confidence interval in
+returns a variance estimate and a 95\% confidence interval in
 addition to the ATE point estimate.  To compute these, the per-arm Gram
 inverses are obtained by calling \code{ds.glm} with
 \code{viewVarCov = TRUE}, and each server additionally returns the
@@ -51,32 +51,28 @@ when treatment probabilities also vary across sites.
 K-1 integer dummy columns (\code{study_id2}, \ldots, \code{study_idK})
 are appended to each server's data frame by \code{addStudyIdDS()}, and
 the federated GLMs are fitted on the augmented design matrix, absorbing
-the shifts.  The asymptotic variance is identical to the no-study-effects
-case (Appendix B.4.2 of Khellaf et al., 2025); the degrees of freedom
-adjust from n - 2(d+1) to n - 2(d+K) automatically.  Has no effect and
+the shifts.  Has no effect and
 emits a warning when only one datasource is present.}
 
 \item{heterogeneous}{Logical. Controls which variance formula is used.
 \code{TRUE} (default) makes no assumption about the participating RCTs:
 each site may have a different covariate distribution and a different
-treatment probability.  The leverage-corrected OLS noise component is
-computed from the per-arm Gram inverses (always returned via
-\code{ds.glm(viewVarCov = TRUE)} when \code{compute_variance = TRUE}),
-using the global covariate mean assembled from per-server column sums
+treatment probability.  The variance requires the per-arm Gram inverses (always returned via
+\code{ds.glm(viewVarCov = TRUE)} when \code{compute_variance = TRUE}) and
+the global covariate mean assembled from per-server column sums
 returned by \code{localAteDS()}.
 \code{FALSE} assumes that all RCTs share the same covariate distribution
 and uses a simpler closed-form variance that is exact only under this
-homogeneity assumption (constant covariate means and treatment
-probabilities across sites).
+homogeneity assumption.
 Has no effect when \code{compute_variance = FALSE}.}
 
 \item{heteroscedastic_arms}{Logical.  Only has effect when
 \code{compute_variance = TRUE}.  If \code{FALSE} (default), the noise
 variance \eqn{\sigma^2} is assumed identical in both arms and estimated
-by pooling the arm-specific deviances from \code{ds.glm} weighted by
-their residual degrees of freedom.  If \code{TRUE}, arm-specific
+by pooling the arm-specific residual sums of squares (rss) from \code{ds.glm} weighted by
+their residual degrees of freedom (df).  If \code{TRUE}, arm-specific
 variances \eqn{\sigma_1^2} and \eqn{\sigma_0^2} are estimated from
-each arm's deviance and residual df, and the variance formula is
+each arm's rss and residual df, and the variance formula is
 adjusted accordingly.}
 
 \item{quiet}{Logical. If \code{TRUE}, suppresses all messages and printed
@@ -88,7 +84,7 @@ A list. When \code{compute_variance = TRUE} (the default),
 seven elements:
 \describe{
 \item{ate}{Federated ATE estimate \eqn{\hat\tau}.}
-\item{variance}{Delta-method variance estimate \eqn{\hat V(\hat\tau)}.}
+\item{variance}{Variance estimate \eqn{\hat V(\hat\tau)}.}
 \item{ci_lower}{Lower 95-percent confidence interval bound.}
 \item{ci_upper}{Upper 95-percent confidence interval bound.}
 \item{n_total}{Total sample size across all servers.}
@@ -104,16 +100,18 @@ Client-side function that orchestrates the federated estimation of an
 average treatment effect (ATE) — and, optionally, its variance and
 confidence interval — from multiple independent RCTs, each held on a
 separate data server. Randomisation holds within each study; the combined
-dataset is not itself a single RCT.
+dataset is not necessarily itself a single RCT.
 }
 \details{
 The function fits separate arm-specific linear models via
 \code{\link[dsBaseClient]{ds.glm}}, broadcasts the pooled coefficients back
 to the servers, and collects local statistics via a single aggregate call
-to \code{localAteDS}.  When \code{compute_variance = FALSE}, only the three
-scalars strictly needed for the point estimate are returned per server
-(\eqn{n_k}, \eqn{n_k^{(1)}}, \eqn{\hat\tau_k}), omitting the residual
-sum of squares and projected scatter that constitute additional disclosure.
+to \code{localAteDS}.  When \code{compute_variance = FALSE}, three scalars are returned per server
+(\eqn{n_k}, \eqn{n_k^{(1)}}, \eqn{\hat\tau_k}): \eqn{\hat\tau_k} and
+\eqn{n_k} suffice for the point estimate; \eqn{n_k^{(1)}} is additionally
+returned so that arm sizes can be checked for asymptotic reliability.
+The residual sum of squares and projected scatter are omitted, as these
+constitute additional disclosure.
 
 \strong{Server-side objects created.}
 Two symbols are always created per server: \code{base_name_treated}

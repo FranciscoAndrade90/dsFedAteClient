@@ -1,10 +1,9 @@
 .Rproj.user
 .Rhistory
 *.Rcheck/
+NEWS.md
+cran-comments.md
 inst/doc
 /doc/
 /Meta/
-dev/*.aux
-dev/*.log
-dev/*.out
-dev/*.toc
+dev/

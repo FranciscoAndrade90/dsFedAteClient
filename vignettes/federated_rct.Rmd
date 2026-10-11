@@ -58,7 +58,7 @@ site-specific intercept shifts that would otherwise confound the unadjusted esti
 
 ```{r, eval = FALSE}
 install.packages("dsFedAteClient")  # client package (analyst machine)
-install.packages("dsFedAte")        # server package (deployed on each data node)
+install.packages("dsFedAte")        # server package (deployed on each data server)
 ```
 
 ## Estimator

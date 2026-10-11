@@ -8,7 +8,7 @@ Client-side 'DataSHIELD' package for federated estimation of the average
 treatment effect (ATE) across multiple independent studies, each held on
 a separate data server. `dsFedAteClient` runs on the analyst's machine;
 the companion server-side package `dsFedAte` must be installed on each
-data node.
+data server.
 
 ## Installation
 

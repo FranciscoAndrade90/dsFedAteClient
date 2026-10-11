@@ -15,8 +15,8 @@ Authors@R:
 Description: Client-side 'DataSHIELD' package that orchestrates the federated
     estimation of the average treatment effect (ATE) across multiple independent
     randomised controlled trials (RCTs), each held on a separate data server.
-    Implements the generalised difference estimator from 'Federated Causal
-    Inference: Multi-Study ATE Estimation beyond Meta-Analysis'
+    Implements in a federated way the g-formula estimator from 'Federated
+    Causal Inference: Multi-Study ATE Estimation beyond Meta-Analysis'
     (R. Khellaf, A. Bellet and J. Josse, 2025), including delta-method
     variance estimation and optional adjustment for study-specific intercept
     shifts.
