@@ -1,8 +1,8 @@
 #' Estimate ATE from multiple RCTs
 #'
 #' Client-side function that orchestrates the federated estimation of an
-#' average treatment effect (ATE) — and, optionally, its variance and
-#' confidence interval — from multiple independent RCTs, each held on a
+#' average treatment effect (ATE) -- and, optionally, its variance and
+#' confidence interval -- from multiple independent RCTs, each held on a
 #' separate data server. Randomisation holds within each study; the combined
 #' dataset is not necessarily itself a single RCT.
 #'
@@ -43,8 +43,8 @@
 #'   addition to the ATE point estimate.  To compute these, the per-arm Gram
 #'   inverses are obtained by calling \code{ds.glm} with
 #'   \code{viewVarCov = TRUE}, and each server additionally returns the
-#'   within-site projected scatter scalar and — when
-#'   \code{heterogeneous = TRUE} — covariate column sums.  All of this
+#'   within-site projected scatter scalar and -- when
+#'   \code{heterogeneous = TRUE} -- covariate column sums.  All of this
 #'   constitutes an extra disclosure step.  Set to \code{FALSE} to return only
 #'   the ATE point estimate and minimise the information shared by each server.
 #' @param study_effects Logical. If \code{FALSE} (default), the no-study-effects

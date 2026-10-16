@@ -21,6 +21,8 @@ Description: Client-side 'DataSHIELD' package that orchestrates the federated
     variance estimation and optional adjustment for study-specific intercept
     shifts.
 License: AGPL (>= 3)
+URL: https://github.com/FranciscoAndrade90/dsFedAteClient
+BugReports: https://github.com/FranciscoAndrade90/dsFedAteClient/issues
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 Imports:
