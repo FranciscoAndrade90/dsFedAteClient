@@ -128,26 +128,48 @@ estimate and 95\% confidence interval are also returned.  The formula used
 depends on the \code{heterogeneous} argument; see below.
 }
 \examples{
-\dontrun{
-conns <- DSI::datashield.login(logins = logindata, assign = TRUE)
-# Full result with variance and CI
-result <- ds.EstimateAte(
-  datasources = conns,
-  base_name = "study_data",
-  outcome_name = "Y",
-  treatment_name = "W",
-  covariate_names = c("X1", "X2")
-)
-# Point estimate only (less disclosure)
-result_ate <- ds.EstimateAte(
-  datasources = conns,
-  base_name = "study_data",
-  outcome_name = "Y",
-  treatment_name = "W",
-  covariate_names = c("X1", "X2"),
-  compute_variance = FALSE
-)
-DSI::datashield.logout(conns)
+\donttest{
+if (requireNamespace("DSLite", quietly = TRUE) &&
+    requireNamespace("dsFedAte", quietly = TRUE)) {
+  library(dsFedAte)
+  library(DSLite)
+
+  set.seed(1)
+  n <- 200
+  study_data <- data.frame(W = rbinom(n, 1, 0.5), X1 = rnorm(n))
+  study_data$Y <- 0.5 * study_data$W + study_data$X1 + rnorm(n)
+
+  datashield_env <- new.env(parent = emptyenv())
+  options(datashield.env = datashield_env,
+          datashield.privacyControlLevel = "banana",
+          nfilter.glm = 0.33)
+
+  srv <- DSLite::newDSLiteServer(tables = list(study_data = study_data))
+  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
+  srv$aggregateMethod("localAteDS", "localAteDS")
+  srv$aggregateMethod("listDisclosureSettingsDS", "listDisclosureSettingsDS")
+  srv$aggregateMethod("checkPermissivePrivacyControlLevel",
+                      "checkPermissivePrivacyControlLevel")
+  assign("dslite.server", srv, envir = datashield_env)
+
+  builder <- DSI::newDSLoginBuilder()
+  builder$append(server = "s1", url = "dslite.server",
+                 table = "study_data", driver = "DSLiteDriver")
+  conns <- DSI::datashield.login(logins = builder$build(), assign = FALSE)
+  DSI::datashield.assign.table(conns, symbol = "study_data", table = "study_data")
+
+  result <- ds.EstimateAte(
+    datasources     = conns,
+    base_name       = "study_data",
+    outcome_name    = "Y",
+    treatment_name  = "W",
+    covariate_names = "X1",
+    quiet           = TRUE
+  )
+  print(result$ate)
+
+  DSI::datashield.logout(conns)
+}
 }
 }
 \references{

@@ -291,7 +291,9 @@ test_that("ds.EstimateAte errors with informative message when disclosure contro
   imb$Y <- rnorm(n)
 
   dslite.server.imb <- DSLite::newDSLiteServer(tables = list(study_data = imb))
-  assign("dslite.server.imb", dslite.server.imb, envir = .GlobalEnv)
+  imb_env <- new.env(parent = emptyenv())
+  options(datashield.env = imb_env)
+  assign("dslite.server.imb", dslite.server.imb, envir = imb_env)
   dslite.server.imb$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   dslite.server.imb$aggregateMethod("localAteDS",                        "localAteDS")
   dslite.server.imb$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")

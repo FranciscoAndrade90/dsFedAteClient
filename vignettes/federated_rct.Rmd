@@ -109,6 +109,9 @@ library(dsFedAteClient)
 library(dsFedAte)
 library(DSLite)
 library(MASS)
+
+datashield_env <- new.env(parent = emptyenv())
+options(datashield.env = datashield_env)
 ```
 
 ## Shared parameters
@@ -175,7 +178,7 @@ for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list[[k]]))
   srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
-  assign(paste0("dslite.server", k), srv, envir = .GlobalEnv)
+  assign(paste0("dslite.server", k), srv, envir = datashield_env)
 }
 
 builder <- DSI::newDSLoginBuilder()
@@ -276,7 +279,7 @@ for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_2[[k]]))
   srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
-  assign(paste0("dslite.server2_", k), srv, envir = .GlobalEnv)
+  assign(paste0("dslite.server2_", k), srv, envir = datashield_env)
 }
 
 builder2 <- DSI::newDSLoginBuilder()
@@ -312,7 +315,7 @@ for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_2[[k]]))
   srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
-  assign(paste0("dslite.server2_", k), srv, envir = .GlobalEnv)
+  assign(paste0("dslite.server2_", k), srv, envir = datashield_env)
 }
 conns_2 <- DSI::datashield.login(logins = builder2$build(), assign = FALSE)
 DSI::datashield.assign.table(conns = conns_2, table = "study_data", symbol = "base")
@@ -404,7 +407,7 @@ for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_het[[k]]))
   srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
-  assign(paste0("dslite.server_het", k), srv, envir = .GlobalEnv)
+  assign(paste0("dslite.server_het", k), srv, envir = datashield_env)
 }
 
 builder_het <- DSI::newDSLoginBuilder()
@@ -508,7 +511,7 @@ for (k in seq_len(K)) {
   srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
   srv$assignMethod("addStudyIdDS", "addStudyIdDS")
-  assign(paste0("dslite.server3_", k), srv, envir = .GlobalEnv)
+  assign(paste0("dslite.server3_", k), srv, envir = datashield_env)
 }
 
 builder3 <- DSI::newDSLoginBuilder()

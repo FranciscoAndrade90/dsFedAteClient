@@ -29,10 +29,9 @@ setupDSLite <- function() {
   dslite.server <- DSLite::newDSLiteServer(
     tables = list(study_data = study_data)
   )
-  # Assign to the global environment so DSLite can resolve the URL
-  # and sessions remain accessible after this function returns.
-  assign("dslite.server", dslite.server, envir = .GlobalEnv)
-  options(datashield.env = .GlobalEnv)
+  datashield_env <- new.env(parent = emptyenv())
+  options(datashield.env = datashield_env)
+  assign("dslite.server", dslite.server, envir = datashield_env)
 
   dslite.server$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   dslite.server$aggregateMethod("localAteDS",                        "localAteDS")
@@ -97,6 +96,9 @@ setupDSLiteStudyEffects <- function() {
 
   sites <- lapply(seq_along(h), make_site)
 
+  datashield_env <- new.env(parent = emptyenv())
+  options(datashield.env = datashield_env)
+
   servers <- lapply(seq_along(sites), function(k) {
     srv_name <- paste0("dslite.study.server.", k)
     srv      <- DSLite::newDSLiteServer(tables = list(study_data = sites[[k]]))
@@ -105,11 +107,9 @@ setupDSLiteStudyEffects <- function() {
     srv$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
     srv$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")
     srv$assignMethod("addStudyIdDS",                         "addStudyIdDS")
-    assign(srv_name, srv, envir = .GlobalEnv)
+    assign(srv_name, srv, envir = datashield_env)
     srv_name
   })
-
-  options(datashield.env = .GlobalEnv)
 
   builder <- DSI::newDSLoginBuilder()
   for (k in seq_along(servers)) {
