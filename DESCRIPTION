@@ -17,8 +17,7 @@ Description: Client-side 'DataSHIELD' package that orchestrates the federated
     randomised controlled trials (RCTs), each held on a separate data server.
     Implements in a federated way the g-formula estimator from Khellaf, Bellet
     and Josse (2025) "Federated Causal Inference: Multi-Study ATE Estimation
-    beyond Meta-Analysis" <doi:10.48550/arXiv.2410.16870>, including
-    delta-method variance estimation and optional adjustment for study-specific
+    beyond Meta-Analysis" <doi:10.48550/arXiv.2410.16870>, including variance estimation and optional adjustment for study-specific
     intercept shifts.
 License: AGPL (>= 3)
 URL: https://github.com/FranciscoAndrade90/dsFedAteClient
