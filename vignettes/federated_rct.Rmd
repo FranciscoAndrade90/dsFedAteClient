@@ -121,14 +121,14 @@ All four examples share the model structure parameters below.
 Example 4 uses arm-specific values defined in its own data section.
 
 ```{r, eval = TRUE}
-K           <- 5
-d           <- 10
+K           <- 3
+d           <- 6
 sigma_noise <- 1.0
 alpha_0     <- -2
 alpha_1     <- -1.85
 
-beta_1 <- seq(-1.75, 0.5,  by = 0.25)
-beta_0 <- seq(-1.8,  0.0,  by = 0.2)
+beta_1 <- seq(-1.75, 0.5, length.out = d)
+beta_0 <- seq(-1.8,  0.0, length.out = d)
 
 I_d <- diag(d)
 J   <- matrix(1, nrow = d, ncol = d)
@@ -136,7 +136,7 @@ J   <- matrix(1, nrow = d, ncol = d)
 
 ## Example 1 — Homogeneous sites
 
-Five sites, balanced sample sizes, same covariate distribution everywhere.
+Three sites, balanced sample sizes, same covariate distribution everywhere.
 The federated estimator matches the centralised one exactly.
 
 ### Data
@@ -145,7 +145,7 @@ The federated estimator matches the centralised one exactly.
 set.seed(123)
 
 n_per_study <- 20 * d
-p_treatment <- c(0.65, 0.65, 0.65, 0.35, 0.35)
+p_treatment <- c(0.65, 0.65, 0.35)
 
 mu_X    <- c(rep(1, d %/% 2), rep(-1, d %/% 2))
 Sigma_X <- 0.5 * I_d + 0.5 * J
@@ -241,9 +241,9 @@ DSI::datashield.logout(conns)
 ## Example 2 — Disclosure thresholds
 
 Same model, but extreme treatment probabilities (0.9 / 0.1) produce very small arm sizes
-at some sites. With $n_k = 200$ and $p = 0.1$, the expected minority arm has only 20
+at some sites. With $n_k = 120$ and $p = 0.1$, the expected minority arm has only 12
 observations. The default `nfilter.glm = 0.33` blocks estimation because the GLM has
-$d + 1 = 11$ parameters and $11/20 = 0.55 > 0.33$.
+$d + 1 = 7$ parameters and $7/12 = 0.58 > 0.33$.
 
 DataSHIELD enforces two distinct mechanisms: the *privacy control level* (`"banana"`,
 `"permissive"`, etc.) gates which functions may be called at all, while `nfilter.*`
@@ -255,7 +255,7 @@ sufficient to unblock estimation.
 ### Data
 
 ```{r, eval = TRUE}
-p_treatment_2 <- c(0.9, 0.9, 0.9, 0.1, 0.1)
+p_treatment_2 <- c(0.9, 0.9, 0.1)
 
 data_list_2 <- vector("list", K)
 for (k in seq_len(K)) {
@@ -310,15 +310,6 @@ ds.EstimateAte(
 
 ```{r, eval = TRUE}
 options(datashield.privacyControlLevel = "banana", nfilter.glm = 1.0)
-
-for (k in seq_len(K)) {
-  srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_2[[k]]))
-  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
-  srv$aggregateMethod("localAteDS", "localAteDS")
-  assign(paste0("dslite.server2_", k), srv, envir = datashield_env)
-}
-conns_2 <- DSI::datashield.login(logins = builder2$build(), assign = FALSE)
-DSI::datashield.assign.table(conns = conns_2, table = "study_data", symbol = "base")
 ```
 
 ```{r, eval = TRUE}
@@ -360,24 +351,20 @@ valid under distributional shift.
 ```{r, eval = TRUE}
 set.seed(123)
 
-n_list          <- c(600, 120, 120, 120, 120)
-p_treatment_het <- c(0.65, 0.65, 0.65, 0.35, 0.35)
+n_list          <- c(600, 120, 120)
+p_treatment_het <- c(0.65, 0.65, 0.35)
 
 mu_list <- list(
   c(rep( 1.0, d / 2), rep(-1.0, d / 2)),
   c(rep(-1.0, d / 2), rep( 1.0, d / 2)),
-  rep(0, d),
-  c(rep( 0.5, d / 2), rep(-1.0, d / 2)),
-  c(rep( 1.2, d / 2), rep( 0.8, d / 2))
+  rep(0, d)
 )
 
 Sigma_1    <- 0.5 * I_d + 0.5 * J
 Sigma_list <- list(
   Sigma_1,
   20 * Sigma_1 + 0.5 * I_d - 0.5 * J,
-  0.02 * Sigma_1 + 0.7  * I_d,
-  1.0  * Sigma_1 + 0.5  * I_d - 0.15 * J,
-  1.5  * Sigma_1 + 0.5  * I_d - 0.15 * J
+  0.02 * Sigma_1 + 0.7  * I_d
 )
 
 tau_k_vec    <- sapply(mu_list, function(mu_k) (alpha_1 - alpha_0) + sum(mu_k * (beta_1 - beta_0)))
@@ -478,9 +465,9 @@ Pass `study_effects = TRUE` to do this automatically.
 ```{r, eval = TRUE}
 set.seed(123)
 
-n_list        <- c(600, 300, 300, 300, 300)
-h_k           <- c(1, 2, -1, 30, 2)
-p_treatment_3 <- c(0.65, 0.65, 0.65, 0.35, 0.35)
+n_list        <- c(600, 300, 300)
+h_k           <- c(1, -1, 30)
+p_treatment_3 <- c(0.65, 0.65, 0.35)
 sigma_0       <- 0.5
 sigma_1       <- 3.0
 
