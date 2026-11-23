@@ -176,7 +176,6 @@ options(
 
 for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list[[k]]))
-  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
   assign(paste0("dslite.server", k), srv, envir = datashield_env)
 }
@@ -277,7 +276,6 @@ options(datashield.privacyControlLevel = "banana", nfilter.glm = 0.33)
 
 for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_2[[k]]))
-  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
   assign(paste0("dslite.server2_", k), srv, envir = datashield_env)
 }
@@ -392,7 +390,6 @@ options(datashield.privacyControlLevel = "banana", nfilter.glm = 0.33)
 
 for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_het[[k]]))
-  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
   assign(paste0("dslite.server_het", k), srv, envir = datashield_env)
 }
@@ -495,7 +492,6 @@ options(datashield.privacyControlLevel = "banana", nfilter.glm = 0.33)
 
 for (k in seq_len(K)) {
   srv <- DSLite::newDSLiteServer(tables = list(study_data = data_list_3[[k]]))
-  srv$config(DSLite::defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   srv$aggregateMethod("localAteDS", "localAteDS")
   srv$assignMethod("addStudyIdDS", "addStudyIdDS")
   assign(paste0("dslite.server3_", k), srv, envir = datashield_env)

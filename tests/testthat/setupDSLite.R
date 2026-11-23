@@ -33,7 +33,6 @@ setupDSLite <- function() {
   options(datashield.env = datashield_env)
   assign("dslite.server", dslite.server, envir = datashield_env)
 
-  dslite.server$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
   dslite.server$aggregateMethod("localAteDS",                        "localAteDS")
   dslite.server$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
   dslite.server$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")
@@ -102,7 +101,6 @@ setupDSLiteStudyEffects <- function() {
   servers <- lapply(seq_along(sites), function(k) {
     srv_name <- paste0("dslite.study.server.", k)
     srv      <- DSLite::newDSLiteServer(tables = list(study_data = sites[[k]]))
-    srv$config(defaultDSConfiguration(include = c("dsBase", "dsFedAte")))
     srv$aggregateMethod("localAteDS",                        "localAteDS")
     srv$aggregateMethod("listDisclosureSettingsDS",           "listDisclosureSettingsDS")
     srv$aggregateMethod("checkPermissivePrivacyControlLevel", "checkPermissivePrivacyControlLevel")
